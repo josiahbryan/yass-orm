@@ -13,7 +13,8 @@
   "license": "ISC",
   "dependencies": {
     "find-config": "^1.0.0",
-    "mariasql": "^0.2.6"
+    "mariasql": "^0.2.6",
+    "parent-module": "^2.0.0"
   },
   "devDependencies": {
     "chai": "^4.2.0",
