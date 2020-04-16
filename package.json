@@ -1,0 +1,22 @@
+{
+  "name": "yass-orm",
+  "version": "1.3.5",
+  "description": "Yet Another Super Simple ORM",
+  "main": "lib/index.js",
+  "bin": {
+    "yass-orm-schema-sync": "bin/schema-sync"
+  },
+  "scripts": {
+    "test": "mocha --reporter spec"
+  },
+  "author": "Josiah Bryan <jbryan@kramerav.com> (https://josiahbryan.com)",
+  "license": "ISC",
+  "dependencies": {
+    "find-config": "^1.0.0",
+    "mariasql": "^0.2.6"
+  },
+  "devDependencies": {
+    "chai": "^4.2.0",
+    "mocha": "^7.1.1"
+  }
+}
