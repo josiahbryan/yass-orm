@@ -57,9 +57,8 @@ sub attach_id_trigger {
 	my $dbh   = shift; # for checking for trigger exists
 	my $table = shift;
 
-	# NB: @PriKeyAttrs uses 'int auto_increment' for NCS, not a string UUID, so we don't need the trigger in other projects,
-	# code is here if needed
-	#upload_id_trigger($dbh, $DB_HOST, $DB_NAME, 'root', $PASSWORD, $table);
+	# Creates a UUID for the id field
+	upload_id_trigger($dbh, $DB_HOST, $DB_NAME, 'root', $PASSWORD, $table);
 }
 
 # Used to add the 'id' column automatically to tables below
@@ -72,16 +71,18 @@ sub attach_id_trigger {
 # );
 
 our @PriKeyAttrs = (
-	# 'type'	=> 'char(36)',
-	# 'key'	=> 'PRI',
-	# null	=> 0, # for sync
-	# _id	=> 1
-
 	'extra'	   => 'auto_increment',
 	'type'	   => 'int(11)',
 	'key'	   => 'PRI',
 	'readonly' => 1,
 	'auto'	   => 1,
+);
+
+
+our @PriKeyUuuidAttrs = (
+	'type'	=> 'char(36)',
+	'key'	=> 'PRI',
+	'null'	=> 0, # for sync
 );
 
 # Convert each definition to a schema using 'convert-definition-to-schema.js' in the current directory
@@ -108,10 +109,14 @@ foreach my $definition_file (@model_definitions) {
 	# Add an 'id' field to the field list because Sequelize and Ember both expect an 'id' field,
 	# but our definitions (intentionally) don't contain an id field
 	my @fields = @{$schema->{fields} || []};
-	my @id = grep { $_->{type} eq 'primaryKey' } @fields;
+	my @id = grep { $_->{type} eq 'idKey' || $_->{type} eq 'uuidKey' } @fields;
+	my $needs_id_trigger = 0;
 	if(@id) {
 		my $id = shift @id;
-		my %attrs = @PriKeyAttrs;
+		my %attrs = $_->{type} eq 'uuidKey' ? @PriKeyUuuidAttrs : @PriKeyAttrs;
+		
+		$needs_id_trigger = 1 if $_->{type} eq 'uuidKey';
+
 		foreach my $key (keys %attrs) {
 			$id->{$key} = $attrs{$key};
 		}
@@ -123,7 +128,9 @@ foreach my $definition_file (@model_definitions) {
 	mysql_schema_update($dbh, $DB_NAME, $schema->{table}, \@fields, $schema->{options});
 
 	# Attach our UUID trigger
-	attach_id_trigger($dbh, $schema->{table});
+	if ($needs_id_trigger) {
+		attach_id_trigger($dbh, $schema->{table});
+	}
 
 	# one-time update as we convert these concepts
 	# $dbh->do('alter table `'.$schema->{table}.'` drop deleted');
