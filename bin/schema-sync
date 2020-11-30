@@ -113,13 +113,15 @@ foreach my $definition_file (@model_definitions) {
 	my $needs_id_trigger = 0;
 	if(@id) {
 		my $id = shift @id;
-		my %attrs = $_->{type} eq 'uuidKey' ? @PriKeyUuuidAttrs : @PriKeyAttrs;
-		
-		$needs_id_trigger = 1 if $_->{type} eq 'uuidKey';
+		my %attrs = $id->{type} eq 'uuidKey' ? @PriKeyUuuidAttrs : @PriKeyAttrs;
+
+		$needs_id_trigger = 1 if $id->{type} eq 'uuidKey';
 
 		foreach my $key (keys %attrs) {
 			$id->{$key} = $attrs{$key};
 		}
+
+		# print STDERR "Found ID colum:" . Dumper($id, \%attrs);		
 	} else {
 		unshift @fields, { field => 'id', @PriKeyAttrs };
 	}
@@ -130,6 +132,8 @@ foreach my $definition_file (@model_definitions) {
 	# Attach our UUID trigger
 	if ($needs_id_trigger) {
 		attach_id_trigger($dbh, $schema->{table});
+	} else {
+		# print STDERR "Table does not need ID trigger: $schema->{table}\n";
 	}
 
 	# one-time update as we convert these concepts
@@ -577,7 +581,7 @@ sub _mysql_fieldspec
 	$_->{type} = 'longtext' if $_->{type} eq 'xml(-1)';
 	$_->{type} = 'blob' if $_->{type} =~ /image\(\d+\)/;
 
-	"`$_->{field}` $_->{type}".
+	my $sql = "`$_->{field}` $_->{type}".
 		($_->{null} eq 'NO' || $_->{null} eq '0' ? ' NOT NULL' : '').
 		(!$ignore{key} &&
 		 $_->{key}  eq 'PRI' ? ' PRIMARY KEY' .
@@ -589,8 +593,11 @@ sub _mysql_fieldspec
 			$_->{default} eq '' && $_->{type}=~/^int/ ? ' DEFAULT 0' :
 			$_->{default} ne 'NULL' ? ' DEFAULT "'.$_->{default}.'"' :
 			'' )
-		: '')
+		: '');
 		#$_->{Extra};
+
+	# print STDERR "fieldspec: " . $sql, "\n";
+	return $sql;
 
 }
 
