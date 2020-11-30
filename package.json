@@ -7,18 +7,35 @@
     "yass-orm-schema-sync": "bin/schema-sync"
   },
   "scripts": {
-    "test": "mocha --reporter spec"
+    "test": "mocha --reporter spec",
+    "eslint:fix:watch": "nodemon node_modules/eslint/bin/eslint.js --verbose --ignore-path .eslintignore ./lib ./bin --fix",
+    "eslint:fix": "eslint --ignore-path .eslintignore ./lib ./bin --fix",
+    "eslint": "eslint --ignore-path .eslintignore ./lib ./bin"
   },
   "author": "Josiah Bryan <josiahbryan@gmail.com> (https://josiahbryan.com)",
   "license": "ISC",
+  "husky": {
+    "hooks": {
+      "pre-commit": "npm run eslint:fix"
+    }
+  },
   "dependencies": {
+    "babel-eslint": "^10.1.0",
     "find-config": "^1.0.0",
     "mariadb": "^2.5.1",
     "parent-module": "^2.0.0"
   },
   "devDependencies": {
     "chai": "^4.2.0",
+    "eslint": "^7.10.0",
+    "eslint-config-danbriggs5-base": "^1.0.0",
+    "eslint-config-prettier": "^6.12.0",
+    "eslint-plugin-import": "^2.22.1",
+    "eslint-plugin-prettier": "^3.1.4",
+    "husky": "^4.3.0",
     "mocha": "^7.1.1",
+    "nodemon": "^2.0.6",
+    "prettier": "^2.1.2",
     "uuid": "^8.3.1"
   }
 }

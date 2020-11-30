@@ -1,0 +1,8 @@
+build/
+examples/
+node_modules/
+dist/
+devel/
+tmp/
+resources/
+src/config.js

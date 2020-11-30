@@ -1,4 +1,5 @@
-/***********************************
+/* eslint-disable no-param-reassign, global-require, no-console, import/no-dynamic-require */
+/** *********************************
 
 	NOTE
 
@@ -9,7 +10,7 @@
 	of the updates.
 
 
-************************************/
+*********************************** */
 
 const { convertDefinition } = require('../lib/def-to-schema');
 
