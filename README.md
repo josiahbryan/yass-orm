@@ -4,6 +4,13 @@ Yet Another Super Simple ORM
 Why? Mainly for my personal use in a variety of projects.
 ## Recent changes:
 
+----
+* Fixed Date stringification on insert
+* Added auto retry if SQL connection goes away
+* Misc bug and linter fixes
+
+----
+
 * Support for UUID primary keys (in the 'id' field)
 	* To use, define an 'id' field in your schema using the `t.uuidKey` type. Triggers will automatically be added to that table to set a UUID using the MySQL `uuid()` function.
 * `dbh()` accessors on classes are now **async** which means you MUST `await` them to get the handle.
