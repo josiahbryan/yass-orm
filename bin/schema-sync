@@ -22,19 +22,32 @@ my $abs_convert = $real_exec_path . '/convert-definition-to-schema.js';
 my $config_json = `node $abs_config`;
 my $config = from_json($config_json);
 
+# print "Debug: config used: ", Dumper $config;
+
 # DISABLE in production
 our $ALLOW_DROP = 0;
 
 our $DB_NAME  = $config->{schema};
 our $DB_HOST  = $config->{host};
 our $PASSWORD = $config->{password};
+our $USER     = $config->{user} || 'root';
+our $PORT     = $config->{port} || 3306;
+our $SSL      = $config->{ssl} || 0;
+our $CERT     = $config->{ssl_cert_file} || undef,
 
 # $ALLOW_DROP = 1;
 
 # die $PASSWORD."/".$TEST_MACHINE."|$TEST_MACHINE_MAC/".`hostname`;
 
 # Setup connection to database
-Class::DBI->connection("dbi:mysql::database=$DB_NAME;host=$DB_HOST;mysql_enable_utf8=1,mysql_multi_statements=1", 'root', $PASSWORD);
+my $conn_str = "dbi:mysql::database=$DB_NAME;host=$DB_HOST;port=${PORT};mysql_enable_utf8=1;mysql_multi_statements=1";
+
+# print "Debug: conn_str:", $conn_str, "\n";
+
+Class::DBI->connection($conn_str, $USER, $PASSWORD, {
+	mysql_ssl => $SSL,
+	mysql_ssl_ca_file => $CERT,
+});
 
 # Set options used by mysql_schema_update
 our @mysql_schema_sql_debug_output;
@@ -50,7 +63,7 @@ if(!@model_definitions) {
 }
 
 # Add our match_ratio() function for use in custom-query-filter
-upload_match_ratio_function($DB_HOST, $DB_NAME, 'root', $PASSWORD);
+upload_match_ratio_function($DB_HOST, $DB_NAME, 'root', $PASSWORD, $PORT);
 
 # For use below
 sub attach_id_trigger {
@@ -58,7 +71,7 @@ sub attach_id_trigger {
 	my $table = shift;
 
 	# Creates a UUID for the id field
-	upload_id_trigger($dbh, $DB_HOST, $DB_NAME, 'root', $PASSWORD, $table);
+	upload_id_trigger($dbh, $DB_HOST, $DB_NAME, 'root', $PASSWORD, $PORT, $table);
 }
 
 # Used to add the 'id' column automatically to tables below
@@ -604,7 +617,7 @@ sub _mysql_fieldspec
 sub upload_match_ratio_function {
 	# my $dbh = shift;
 	# 'localhost', $DB_NAME, 'root', $PASSWORD
-	my ($host, $db, $user, $pass) = @_;
+	my ($host, $db, $user, $pass, $port) = @_;
 
 	my $tmp = "/tmp/f$$.sql";
 	open(TMP, ">$tmp") || die "Cannot write $tmp: $!";
@@ -657,7 +670,7 @@ sub upload_match_ratio_function {
 	# Cannot insert a function via the socket connection in $dbh,
 	# so we have to resort to the command line
 	# The fancy $(which mysql) is needed on mac for some weird path resolution reason
-	my $cmd = "\$(which mysql) -u ${user} --password=${pass} -h ${host} -D ${db} < $tmp";
+	my $cmd = "\$(which mysql) -u ${user} --password=${pass} -h ${host} -D ${db} -P ${port} < $tmp";
 	print STDERR "Uploading match_ratio() function: $cmd\n";
 	system($cmd);
 
@@ -667,7 +680,7 @@ sub upload_match_ratio_function {
 sub upload_id_trigger {
 	my $dbh = shift; # for checking for trigger exists
 	# 'localhost', $DB_NAME, 'root', $PASSWORD
-	my ($host, $db, $user, $pass, $table) = @_;
+	my ($host, $db, $user, $pass, $port, $table) = @_;
 
 	my $trigger_name = "before_insert_${table}_set_id";
 
@@ -700,7 +713,7 @@ sub upload_id_trigger {
 
 	# Cannot insert a function via the socket connection in $dbh,
 	# so we have to resort to the command line
-	my $cmd = "mysql -u ${user} --password=${pass} -h ${host} -D ${db} < $tmp";
+	my $cmd = "mysql -u ${user} --password=${pass} -h ${host} -D ${db} -P ${port} < $tmp";
 	print STDERR "Uploading trigger '$trigger_name': $cmd\n";
 	system($cmd);
 
