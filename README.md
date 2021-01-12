@@ -5,6 +5,10 @@ Why? Mainly for my personal use in a variety of projects.
 ## Recent changes:
 
 ----
+* 2021-01-11
+	* Rewrote the `schema-sync` utility from Perl to Javascript, thereby removing any use of Perl in this project.
+
+----
 * Fixed Date stringification on insert
 * Added auto retry if SQL connection goes away
 * Misc bug and linter fixes

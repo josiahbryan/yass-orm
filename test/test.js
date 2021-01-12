@@ -15,24 +15,9 @@ async function wait(done, f) {
 }
 
 describe('#YASS-ORM', function() {
-	const fakeSchema = ({ types: t }) => {
-		return { 
-			table: 'yass_test1',
-			schema: {
-				name: t.string,
-			}
-		}
-	};
+	const fakeSchema = require('./fakeSchema').default;
 
-	const fakeSchemaUuid = ({ types: t }) => {
-		return { 
-			table: 'yass_test2',
-			schema: {
-				id: t.uuidKey,
-				name: t.string,
-			}
-		}
-	};
+	const fakeSchemaUuid = require('./fakeSchemaUuid').default;
 	
 	it('should load properly',  () => {});
 	

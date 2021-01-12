@@ -1,6 +1,6 @@
 {
   "name": "yass-orm",
-  "version": "1.3.6",
+  "version": "1.3.7",
   "description": "Yet Another Super Simple ORM",
   "main": "lib/index.js",
   "bin": {
@@ -10,13 +10,14 @@
     "test": "mocha --reporter spec",
     "eslint:fix:watch": "nodemon node_modules/eslint/bin/eslint.js --verbose --ignore-path .eslintignore ./lib ./bin --fix",
     "eslint:fix": "eslint --ignore-path .eslintignore ./lib ./bin --fix",
-    "eslint": "eslint --ignore-path .eslintignore ./lib ./bin"
+    "eslint": "eslint --ignore-path .eslintignore ./lib ./bin",
+    "precommit": "npm run eslint:fix"
   },
   "author": "Josiah Bryan <josiahbryan@gmail.com> (https://josiahbryan.com)",
   "license": "ISC",
   "husky": {
     "hooks": {
-      "pre-commit": "npm run eslint:fix"
+      "pre-commit": "npm run precommit"
     }
   },
   "dependencies": {
