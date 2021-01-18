@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
-// NOTE: The file `schema-sync` in this directory is a symlink to this file (schema-sync.js)
-// so we don't break existing consumers of YASS that run schema-sync without the .js extension
+/**
+ * Simple utility to sync from the definitions to the database
+ */
 
 /* eslint-disable no-console */
 const syncUtil = require('../lib/sync-to-db');
