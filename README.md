@@ -5,6 +5,7 @@ Why? Mainly for my personal use in a variety of projects.
 ## Recent changes:
 ----
 * 2021-01-18
+	* Added config option `deflateToStrings` to force stringification of values before submitting to DB. This can work around some weird ForeignKey constraint errors if you encounter them.
 	* Fixed ES6 import support for linked models
 	* Added `bin/export-schema` to export the schema from the configured database to a set of `defs` and `models`
 	* Updated handling of external schemas with primary key columns named something other than 'id' by honoring the convention of "table.field" when specifying the table name in schemas and including the 'legacyExternalSchema' attribute on schemas.
