@@ -4,6 +4,9 @@ Yet Another Super Simple ORM
 Why? Mainly for my personal use in a variety of projects.
 ## Recent changes:
 ----
+* 2021-03-07
+	* Fixed bug in creating new tables with auto-inc IDs
+	* Fixed bug in debug_sql with no args
 * 2021-01-18
 	* Fixed bug creating rows when `uuidLinkedIds` config enabled but the ID key was auto increment
 	* Added config option `deflateToStrings` to force stringification of values before submitting to DB. This can work around some weird ForeignKey constraint errors if you encounter them.
