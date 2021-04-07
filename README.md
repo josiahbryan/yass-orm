@@ -4,6 +4,8 @@ Yet Another Super Simple ORM
 Why? Mainly for my personal use in a variety of projects.
 ## Recent changes:
 ----
+* 2021-04-07
+	* Fixed bugs in the .find() routines that handle plain-text matching so it works with the new MariaDB modules
 * 2021-03-07
 	* Fixed bug in creating new tables with auto-inc IDs
 	* Fixed bug in debug_sql with no args
