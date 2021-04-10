@@ -2,8 +2,11 @@
 Yet Another Super Simple ORM
 
 Why? Mainly for my personal use in a variety of projects.
+
 ## Recent changes:
 ----
+* 2021-04-10
+	* Updated generated DML format and matcher logic to support DigitalOcean's managed-MySQL instances
 * 2021-04-07
 	* Fixed bugs in the .find() routines that handle plain-text matching so it works with the new MariaDB modules
 * 2021-03-07
