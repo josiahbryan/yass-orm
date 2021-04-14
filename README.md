@@ -5,6 +5,8 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
+* 2021-04-13
+	* Updated string/column quotations in generated SQL from the finder methods to support newer SQL constraints
 * 2021-04-10
 	* Updated generated DML format and matcher logic to support DigitalOcean's managed-MySQL instances
 * 2021-04-07

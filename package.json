@@ -1,6 +1,6 @@
 {
   "name": "yass-orm",
-  "version": "1.3.9",
+  "version": "1.3.10",
   "description": "Yet Another Super Simple ORM",
   "main": "lib/index.js",
   "bin": {
