@@ -5,6 +5,9 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
+* 2021-05-30
+	* Updated lodash and hosted-git-info deps due to upstream requirements
+	* Added notes on testing and fixed linting errors in test.js
 * 2021-04-14
 	* Added additional error string to allowed retry errors
 * 2021-04-13
@@ -42,3 +45,14 @@ Why? Mainly for my personal use in a variety of projects.
 * Updated test suite internally add more coverage
 * Removed various service wrappers/emulators that were unused/uneeded (e.g. Feathers/etc)
 * Added linting to clean up code quality
+
+# Testing
+
+For tests to run successfully, you will need to do the following steps:
+
+* Copy `sample.yass-orm.js` to `.yass-orm.js`
+* Modify `.yass-orm.js` to suit the user/pass for your local DB
+* Ensure database `test` exists
+* Create two test tables:
+	* `create table yass_test1 (id int primary key auto_increment, name varchar(255), isDeleted int default 0);`
+	* `create table yass_test2 (id varchar(255), name varchar(255), isDeleted int default 0);`
