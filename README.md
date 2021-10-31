@@ -5,6 +5,8 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
+* 2021-10-30
+	* Added support for `mutateJoins` to `finder.js` to inject custom joined tables when searching
 * 2021-06-12
 	* Added timezone config to mariadb connector to disable the underlying mariadb library from attempting to translate date/time string timezones since we take care to ensure date/time strings are loaded/stored as UTC
 * 2021-05-30
