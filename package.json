@@ -1,6 +1,7 @@
 {
   "name": "yass-orm",
-  "version": "1.3.11",
+  "version": "1.3.12",
+  "repository": "https://github.com/josiahbryan/yass-orm",
   "description": "Yet Another Super Simple ORM",
   "main": "lib/index.js",
   "bin": {
@@ -11,7 +12,8 @@
     "eslint:fix:watch": "nodemon node_modules/eslint/bin/eslint.js --verbose --ignore-path .eslintignore ./lib ./bin/schema-sync --fix",
     "eslint:fix": "eslint --ignore-path .eslintignore ./lib ./bin/schema-sync --fix",
     "eslint": "eslint --ignore-path .eslintignore ./lib ./bin/schema-sync",
-    "precommit": "npm run eslint:fix && npm run test"
+    "precommit": "npm run eslint:fix && npm run test",
+    "docs": "jsdoc -c jsdoc.json"
   },
   "author": "Josiah Bryan <josiahbryan@gmail.com> (https://josiahbryan.com)",
   "license": "ISC",
@@ -22,22 +24,24 @@
   },
   "dependencies": {
     "babel-eslint": "^10.1.0",
-    "chalk": "^4.1.0",
+    "chalk": "^4.1.2",
     "find-config": "^1.0.0",
-    "mariadb": "^2.5.1",
+    "mariadb": "^2.5.5",
     "parent-module": "^2.0.0",
-    "uuid": "^8.3.1"
+    "uuid": "^8.3.2"
   },
   "devDependencies": {
-    "chai": "^4.2.0",
-    "eslint": "^7.10.0",
+    "boxy-jsdoc-template": "^2.0.2",
+    "chai": "^4.3.4",
+    "eslint": "^7.32.0",
     "eslint-config-danbriggs5-base": "^1.0.0",
     "eslint-config-prettier": "^6.12.0",
-    "eslint-plugin-import": "^2.22.1",
-    "eslint-plugin-prettier": "^3.1.4",
-    "husky": "^4.3.0",
-    "mocha": "^7.1.1",
-    "nodemon": "^2.0.6",
-    "prettier": "^2.1.2"
+    "eslint-plugin-import": "^2.25.3",
+    "eslint-plugin-prettier": "^3.4.1",
+    "husky": "^4.3.8",
+    "jsdoc": "^3.6.3",
+    "mocha": "^9.1.3",
+    "nodemon": "^2.0.15",
+    "prettier": "^2.5.1"
   }
 }

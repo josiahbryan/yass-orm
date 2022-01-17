@@ -7,6 +7,12 @@ Why? Mainly for my personal use in a variety of projects.
 ----
 * 2022-01-13
 	* Added `allowPublicKeyRetrieval` to handle options to support newer versions of MySQL
+* 2021-12-06
+	* Added support for custom `baseClass` in `config.js`
+	* Added support for a promise guard in `DatabaseObject.jsonify` to prevent odd recursion errors where sometimes the object would not be properly jsonified if multiple instances running at once
+	* Added support for subclasses overriding the caching implementation
+	* Updated the caching implementation to properly freshen the cache when mutating the object via patches, etc
+	* Added basic `stringify()` function to `DatabaseObject` base class
 * 2021-10-30
 	* Added support for `mutateJoins` to `finder.js` to inject custom joined tables when searching
 * 2021-06-12
