@@ -5,6 +5,9 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
+* 2022-01-21
+	* Merged support for Read Only nodes to support MySQL clusters
+	* Added support for a static `generateObjectId` method that child classes can override to change how IDs are generated
 * 2022-01-13
 	* Added `allowPublicKeyRetrieval` to handle options to support newer versions of MySQL
 * 2021-12-06
