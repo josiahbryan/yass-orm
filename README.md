@@ -5,6 +5,8 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
+* 2022-02-02
+   * Added `onHandleAccessDebug` as an external hook to debug handle creation/access. To use, `import { libUtils } from 'yass-orm'` then set `libUtils.handle.onHandleAccessDebug = (dbh, { cacheMiss }) => { ... }` to execute your custom code.
 * 2022-01-21
 	* Merged support for Read Only nodes to support MySQL clusters
 	* Added support for a static `generateObjectId` method that child classes can override to change how IDs are generated
