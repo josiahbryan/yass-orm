@@ -6,6 +6,7 @@
 
 /* eslint-disable no-console */
 const syncUtil = require('../lib/sync-to-db');
+const { promiseMap } = require('../lib/promiseMap');
 
 async function main() {
 	const sourceFiles = Array.from(process.argv).slice(2);
@@ -14,7 +15,7 @@ async function main() {
 	syncUtil.uploadMatchRatioFunction();
 
 	// Convert each definition to a schema using
-	await syncUtil.promiseMap(sourceFiles, async (definitionFile) => {
+	await promiseMap(sourceFiles, async (definitionFile) => {
 		// -common-fields is used internally by convert-definition, so exlude it if someone
 		// just did a glob pattern, like definitions/*.js */
 		// Update to skip any files that start with a dash (-)
