@@ -5,6 +5,8 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
+* 2022-02-04
+	* Fixed compatibility with `int(11)` primary keys for schema syncs
 * 2022-01-13
 	* Added `allowPublicKeyRetrieval` to handle options to support newer versions of MySQL
 * 2021-10-30
