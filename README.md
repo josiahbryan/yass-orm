@@ -5,7 +5,9 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
-* 2022-02-6
+* 2022-02-16
+	* Set `process.env.TZ='UTC'` to ensure consistent Date handling
+* 2022-02-06
 	* Fixed race condition around cached handles in `dbh.js`
 	* Added code timing helper and optimized inflating already inflated values
 * 2022-02-02
