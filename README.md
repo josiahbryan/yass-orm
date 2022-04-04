@@ -5,6 +5,8 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
+* 2022-04-09
+	* Added support for `staging` as a valid value for `NODE_ENV`
 * 2022-02-04
 	* Fixed compatibility with `int(11)` primary keys for schema syncs
 * 2022-01-13
