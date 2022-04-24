@@ -5,6 +5,9 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
+* 2022-04-24
+	* Fixed bug in `search(fields)` where `fields` would be modified with deflated values after returning (e.g. if `fields` was `{ flag: true }`, after `search()`, the outer scope's copy of `fields` would be incorrectly changed to `{ flag: 1 }`). This was caused by incorrect `Object.assign` usage internally, which has been rectified in this commit.
+	* Version bump to `1.4.6`
 * 2022-04-09
 	* Added support for `staging` as a valid value for `NODE_ENV`
 * 2022-02-16
