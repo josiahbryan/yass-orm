@@ -13,12 +13,12 @@ const YassORM = require('../lib');
 	* Modify .yass-orm.js to suit the user/pass for your local DB
 	* Ensure database 'test' exists
 	* Create two test tables:
-		* create table yass_test1 (id int primary key auto_increment, name varchar(255), isDeleted int default 0);
-		* create table yass_test2 (id varchar(255), name varchar(255), isDeleted int default 0);
+		* create table yass_test1 (id int primary key auto_increment, name varchar(255), isDeleted int default 0, nonce varchar(255));
+		* create table yass_test2 (id varchar(255), name varchar(255), isDeleted int default 0, nonce varchar(255));
 
 */
 
-describe('#YASS-ORM', function () {
+describe('#YASS-ORM', () => {
 	const fakeSchema = require('./fakeSchema').default;
 
 	const fakeSchemaUuid = require('./fakeSchemaUuid').default;
@@ -83,12 +83,24 @@ describe('#YASS-ORM', function () {
 		});
 		// Read straight from DB
 		const raw = (
-			await (await NewClass.dbh()).pquery(
-				`select name from yass_test1 where id=:id`,
-				sample,
-			)
+			await (
+				await NewClass.dbh()
+			).pquery(`select name from yass_test1 where id=:id`, sample)
 		)[0];
 		expect(raw.name).to.equal('framitz');
+	});
+
+	it('should patch objects if giving nonce but no nonce on schema', async () => {
+		let error;
+		await sample
+			.patch({
+				name: 'framitz2',
+				nonce: Date.now(),
+			})
+			.catch((err) => {
+				error = err;
+			});
+		expect(error).to.equal(undefined);
 	});
 
 	it('should soft-delete objects', async () => {
@@ -97,13 +109,12 @@ describe('#YASS-ORM', function () {
 	});
 
 	it('should allow hard delete', async () => {
-		await (await sampleFoc.dbh()).pquery(
-			`delete from yass_test1 where id=:id or id=:sampleId`,
-			{
-				id: sampleFoc,
-				sampleId: sample.id,
-			},
-		);
+		await (
+			await sampleFoc.dbh()
+		).pquery(`delete from yass_test1 where id=:id or id=:sampleId`, {
+			id: sampleFoc,
+			sampleId: sample.id,
+		});
 		const retest = await NewClass.get(sampleFoc.id);
 		expect(retest).to.equal(null);
 	});
@@ -124,10 +135,9 @@ describe('#YASS-ORM', function () {
 		});
 		// Read straight from DB
 		const raw = (
-			await (await UuuidClass.dbh()).pquery(
-				`select name from yass_test2 where id=:id`,
-				sample,
-			)
+			await (
+				await UuuidClass.dbh()
+			).pquery(`select name from yass_test2 where id=:id`, sample)
 		)[0];
 		expect(raw.name).to.equal('framitz');
 	});
@@ -137,11 +147,55 @@ describe('#YASS-ORM', function () {
 		expect(sample.isDeleted).to.equal(true);
 	});
 
+	it('should reject editing if nonce changed on disk using explicit changed nonce', async () => {
+		let error;
+		await sample
+			.patch({
+				name: 'framitz2',
+				nonce: Date.now(),
+			})
+			.catch((err) => {
+				error = err;
+			});
+		expect(error.code).to.equal('ERR_NONCE');
+		// console.log(error);
+	});
+
+	it('should reject editing if nonce changed on disk using nonce in memory', async () => {
+		await (
+			await sampleFoc.dbh()
+		).pquery(`update yass_test2 set nonce=NOW() where id=:id`, sample);
+		let error;
+		await sample
+			.patch({
+				name: 'framitz2',
+			})
+			.catch((err) => {
+				error = err;
+			});
+		expect(error.code).to.equal('ERR_NONCE');
+		// console.log(error);
+	});
+
+	it('should allow editing after fresh reload when nonce changed on disk', async () => {
+		const sample2 = await UuuidClass.get(sample.id);
+		let error;
+		const result = await sample2
+			.patch({
+				name: 'framitz2',
+			})
+			.catch((err) => {
+				error = err;
+			});
+		expect(error).to.equal(undefined);
+		expect(result.name).to.equal('framitz2');
+		// console.log(error);
+	});
+
 	it('should allow hard delete for objects with uuid keys', async () => {
-		await (await sampleFoc.dbh()).pquery(
-			`delete from yass_test2 where id=:id`,
-			sample,
-		);
+		await (
+			await sampleFoc.dbh()
+		).pquery(`delete from yass_test2 where id=:id`, sample);
 		const retest = await UuuidClass.get(sample.id);
 		expect(retest).to.equal(null);
 	});

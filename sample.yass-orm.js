@@ -14,6 +14,8 @@ module.exports = {
 			return {
 				isDeleted: t.bool,
 
+				nonce: t.string,
+
 				createdBy: t.linked('user', { inverse: null }),
 				createdAt: t.datetime,
 

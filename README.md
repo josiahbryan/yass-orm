@@ -5,6 +5,8 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
+* 2022-05-27
+	* Added support for a special `nonce` field - when `nonce` is present on a schema, it is enforced in the `DatabaseObject`'s `patch` method - the nonce given in the patch (or stored in memory) MUST equal the `nonce` stored on disk (explicit `SELECT` is done for the `nonce` before patching to compare). If not equal (`===`), then an `Error` is thrown with the `.code` prop on the error set to `ERR_NONCE`. The caller is expected to `get` a new copy from disk and apply the patch again, or verify with user, or any other domain-specific steps desired.
 * 2022-04-24
 	* Fixed bug in `search(fields)` where `fields` would be modified with deflated values after returning (e.g. if `fields` was `{ flag: true }`, after `search()`, the outer scope's copy of `fields` would be incorrectly changed to `{ flag: 1 }`). This was caused by incorrect `Object.assign` usage internally, which has been rectified in this commit.
 	* Version bump to `1.4.6`
@@ -83,5 +85,5 @@ For tests to run successfully, you will need to do the following steps:
 * Modify `.yass-orm.js` to suit the user/pass for your local DB
 * Ensure database `test` exists
 * Create two test tables:
-	* `create table yass_test1 (id int primary key auto_increment, name varchar(255), isDeleted int default 0);`
-	* `create table yass_test2 (id varchar(255), name varchar(255), isDeleted int default 0);`
+	* `create table yass_test1 (id int primary key auto_increment, name varchar(255), isDeleted int default 0, nonce varchar(255));`
+	* `create table yass_test2 (id varchar(255), name varchar(255), isDeleted int default 0, , nonce varchar(255));`
