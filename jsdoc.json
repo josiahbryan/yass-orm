@@ -1,0 +1,22 @@
+{
+	"tags": {
+		"allowUnknownTags": true,
+		"dictionaries": ["jsdoc"]
+	},
+	"source": {
+		"include": ["./lib", "README.md"],
+		"includePattern": "\\.(js|jsx)$",
+		"excludePattern": "(node_modules/|docs)"
+	},
+	"plugins": [
+		"plugins/markdown"
+	],
+	"opts": {
+		"encoding": "utf8",
+		"destination": "docs/",
+		"recurse": true,
+		"verbose": true,
+		"readme": "./README.md",
+		"template": "node_modules/boxy-jsdoc-template"
+	}
+}

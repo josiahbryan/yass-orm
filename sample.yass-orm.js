@@ -1,4 +1,3 @@
-
 // Override here so we don't have to reply on it being set for scripts in prod
 // TODO: Use config instead?
 process.env.NODE_ENV = 'development';
@@ -10,10 +9,12 @@ module.exports = {
 
 	// Applies to all envs above
 	shared: {
-		schema:   'test',
-		commonFields: t => {
-			return  {
+		schema: 'test',
+		commonFields: (t) => {
+			return {
 				isDeleted: t.bool,
+
+				nonce: t.string,
 
 				createdBy: t.linked('user', { inverse: null }),
 				createdAt: t.datetime,
@@ -21,6 +22,6 @@ module.exports = {
 				updatedBy: t.linked('user', { inverse: null }),
 				updatedAt: t.datetime,
 			};
-		}
-	}
+		},
+	},
 };

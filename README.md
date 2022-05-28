@@ -5,12 +5,36 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
+<<<<<<< HEAD
+* 2022-05-27
+	* Added support for a special `nonce` field - when `nonce` is present on a schema, it is enforced in the `DatabaseObject`'s `patch` method - the nonce given in the patch (or stored in memory) MUST equal the `nonce` stored on disk (explicit `SELECT` is done for the `nonce` before patching to compare). If not equal (`===`), then an `Error` is thrown with the `.code` prop on the error set to `ERR_NONCE`. The caller is expected to `get` a new copy from disk and apply the patch again, or verify with user, or any other domain-specific steps desired.
+* 2022-04-24
+	* Fixed bug in `search(fields)` where `fields` would be modified with deflated values after returning (e.g. if `fields` was `{ flag: true }`, after `search()`, the outer scope's copy of `fields` would be incorrectly changed to `{ flag: 1 }`). This was caused by incorrect `Object.assign` usage internally, which has been rectified in this commit.
+	* Version bump to `1.4.6`
 * 2022-04-09
 	* Added support for `staging` as a valid value for `NODE_ENV`
+* 2022-02-16
+	* Set `process.env.TZ='UTC'` to ensure consistent Date handling
+* 2022-02-06
+	* Fixed race condition around cached handles in `dbh.js`
+	* Added code timing helper and optimized inflating already inflated values
 * 2022-02-04
 	* Fixed compatibility with `int(11)` primary keys for schema syncs
+* 2022-02-02
+   * Added `onHandleAccessDebug` as an external hook to debug handle creation/access. To use, `import { libUtils } from 'yass-orm'` then set `libUtils.handle.onHandleAccessDebug = (dbh, { cacheMiss }) => { ... }` to execute your custom code.
+* 2022-01-21
+	* Merged support for Read Only nodes to support MySQL clusters
+	* Added support for a static `generateObjectId` method that child classes can override to change how IDs are generated
+	* Added quotes ('`') around column names in the generated 'create index' SQL
+	* Added checking for invalid column names in index definitions and better error messages if invalid column names are found
 * 2022-01-13
 	* Added `allowPublicKeyRetrieval` to handle options to support newer versions of MySQL
+* 2021-12-06
+	* Added support for custom `baseClass` in `config.js`
+	* Added support for a promise guard in `DatabaseObject.jsonify` to prevent odd recursion errors where sometimes the object would not be properly jsonified if multiple instances running at once
+	* Added support for subclasses overriding the caching implementation
+	* Updated the caching implementation to properly freshen the cache when mutating the object via patches, etc
+	* Added basic `stringify()` function to `DatabaseObject` base class
 * 2021-10-30
 	* Added support for `mutateJoins` to `finder.js` to inject custom joined tables when searching
 * 2021-06-12
@@ -64,5 +88,5 @@ For tests to run successfully, you will need to do the following steps:
 * Modify `.yass-orm.js` to suit the user/pass for your local DB
 * Ensure database `test` exists
 * Create two test tables:
-	* `create table yass_test1 (id int primary key auto_increment, name varchar(255), isDeleted int default 0);`
-	* `create table yass_test2 (id varchar(255), name varchar(255), isDeleted int default 0);`
+	* `create table yass_test1 (id int primary key auto_increment, name varchar(255), isDeleted int default 0, nonce varchar(255));`
+	* `create table yass_test2 (id varchar(255), name varchar(255), isDeleted int default 0, , nonce varchar(255));`
