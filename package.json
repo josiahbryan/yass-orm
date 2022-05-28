@@ -1,6 +1,6 @@
 {
   "name": "yass-orm",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "repository": "https://github.com/josiahbryan/yass-orm",
   "description": "Yet Another Super Simple ORM",
   "main": "lib/index.js",

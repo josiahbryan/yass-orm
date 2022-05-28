@@ -5,6 +5,7 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
+<<<<<<< HEAD
 * 2022-05-27
 	* Added support for a special `nonce` field - when `nonce` is present on a schema, it is enforced in the `DatabaseObject`'s `patch` method - the nonce given in the patch (or stored in memory) MUST equal the `nonce` stored on disk (explicit `SELECT` is done for the `nonce` before patching to compare). If not equal (`===`), then an `Error` is thrown with the `.code` prop on the error set to `ERR_NONCE`. The caller is expected to `get` a new copy from disk and apply the patch again, or verify with user, or any other domain-specific steps desired.
 * 2022-04-24
@@ -17,6 +18,8 @@ Why? Mainly for my personal use in a variety of projects.
 * 2022-02-06
 	* Fixed race condition around cached handles in `dbh.js`
 	* Added code timing helper and optimized inflating already inflated values
+* 2022-02-04
+	* Fixed compatibility with `int(11)` primary keys for schema syncs
 * 2022-02-02
    * Added `onHandleAccessDebug` as an external hook to debug handle creation/access. To use, `import { libUtils } from 'yass-orm'` then set `libUtils.handle.onHandleAccessDebug = (dbh, { cacheMiss }) => { ... }` to execute your custom code.
 * 2022-01-21
