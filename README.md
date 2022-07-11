@@ -5,7 +5,9 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
-<<<<<<< HEAD
+* 2022-07-10
+	* Changed calls from `path.join` to `path.resolve` to support relative links and other use-cases
+	* Changed UUID Primary Key definitions to be `char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin` in order to force case-sensitive matches
 * 2022-05-27
 	* Added support for a special `nonce` field - when `nonce` is present on a schema, it is enforced in the `DatabaseObject`'s `patch` method - the nonce given in the patch (or stored in memory) MUST equal the `nonce` stored on disk (explicit `SELECT` is done for the `nonce` before patching to compare). If not equal (`===`), then an `Error` is thrown with the `.code` prop on the error set to `ERR_NONCE`. The caller is expected to `get` a new copy from disk and apply the patch again, or verify with user, or any other domain-specific steps desired.
 * 2022-04-24
@@ -60,8 +62,6 @@ Why? Mainly for my personal use in a variety of projects.
 	* Added `bin/export-schema` to export the schema from the configured database to a set of `defs` and `models`
 	* Updated handling of external schemas with primary key columns named something other than 'id' by honoring the convention of "table.field" when specifying the table name in schemas and including the 'legacyExternalSchema' attribute on schemas.
 	* Added test suite to precommit hooks
-
-----
 * 2021-01-11
 	* Rewrote the `schema-sync` utility from Perl to Javascript, thereby removing any use of Perl in this project.
 
