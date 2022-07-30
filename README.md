@@ -5,6 +5,8 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
+* 2022-07-30
+	* Added support for pass-thru props from definitions into the JSON schema created for objects, including auto-population of any schema-provided 'options' object. This was added to support passing thru custom fields from the schema into domain code.
 * 2022-07-10
 	* Changed calls from `path.join` to `path.resolve` to support relative links and other use-cases
 	* Changed UUID Primary Key definitions to be `char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin` in order to force case-sensitive matches
