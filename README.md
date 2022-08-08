@@ -5,6 +5,9 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
+* 2022-08-07
+	* Modified `patch` behavior to NOT set ALL the fields, but only the fields explicitly given to `patch` (as long as they are in the schema).
+	* Added `patchWithNonceRetry` method (see jsdocs in the code) to help with retrying when nonce changes on disk
 * 2022-07-30
 	* Added support for pass-thru props from definitions into the JSON schema created for objects, including auto-population of any schema-provided 'options' object. This was added to support passing thru custom fields from the schema into domain code.
 * 2022-07-10
