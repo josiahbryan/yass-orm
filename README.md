@@ -6,6 +6,9 @@ Why? Mainly for my personal use in a variety of projects.
 ## Recent changes:
 ----
 * 2022-08-08
+	* Bump version to `1.6.5` to reflect recent changes
+	* Did `npm audit fix` so `npm audit` runs clean now
+	* Updated `package-lock.json`'s `lockFileVersion`
 	* Added `QueryLogger` interface as named export to allow users to consume a query log, get last 100 queries executed, and get notified on each new query (and when the query ends). Off by default, to use, first call `QueryLogger.enable()` then `QueryLog.attachListener(callback)`. Also `QueryLogger.getLines()` gets most recent 100 queries. In your `attachListener` callback, you can set an `onFinished` property on the first json argument you receive, and it will be called when the query ends.
 	* Made handle creation deferred  - i.e. two simultaneous calls to something like `retryIfConnectionLost` will now use the same handle instead of creating a new handle each time. This should have worked in the past, and it does work if you call `retryIfConnectionLost` (or anything that creates a handle) some milliseconds apart. However, if the internal `handle` routine was called while the first `handle` was still connecting (since connections are async), there would be no cached handle (yet), so it would just create another new handle - which would also have to connect. In situations where multiple queries are being run by different parts of the program on cold start (e.g. a server stack booting), this could create hundreds of handles where it really should just have the one cached handle (as needed). This commit fixes that "cold-boot" scenario.
 * 2022-08-07
