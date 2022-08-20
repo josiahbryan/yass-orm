@@ -5,6 +5,8 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
+* 2022-08-11
+	* Fix: Don't try to destructure failures in queries for nonces
 * 2022-08-10
 	* Added `verbose` flag to `patchWithNonceRetry` options and defaulted it to false to quiet some logs that were not strictly required.
 * 2022-08-08
