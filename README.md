@@ -7,6 +7,7 @@ Why? Mainly for my personal use in a variety of projects.
 ----
 * 2022-09-16
 	* Fix: Add better nonce failure messages
+	* Fix: Regression in nonce failures with JSON.stringify
 * 2022-08-11
 	* Fix: Don't try to destructure failures in queries for nonces
 * 2022-08-10
