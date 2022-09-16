@@ -5,6 +5,8 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
+* 2022-09-16
+	* Fix: Add better nonce failure messages
 * 2022-08-11
 	* Fix: Don't try to destructure failures in queries for nonces
 * 2022-08-10
