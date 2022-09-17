@@ -8,6 +8,7 @@ Why? Mainly for my personal use in a variety of projects.
 * 2022-09-16
 	* Fix: Add better nonce failure messages
 	* Fix: Regression in nonce failures with JSON.stringify
+	* Fix: Added better error messages when it can't find linked models long with traces on where the call appeared to originate from
 * 2022-08-11
 	* Fix: Don't try to destructure failures in queries for nonces
 * 2022-08-10
