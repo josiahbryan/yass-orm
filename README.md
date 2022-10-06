@@ -5,6 +5,8 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
+* 2022-10-06
+	* Feat: Added support for a `disableAutoUpdatedAt` on schema definitions to do as it says: Turn off the automatic setting of `updatedAt` fields in the `patch()` method on objects. It is on by default, but you can set `disableAutoUpdatedAt: true` in your schema definition to turn off that behavior now.
 * 2022-09-16
 	* Fix: Add better nonce failure messages
 	* Fix: Regression in nonce failures with JSON.stringify
