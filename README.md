@@ -7,6 +7,7 @@ Why? Mainly for my personal use in a variety of projects.
 ----
 * 2022-11-24
 	* Feat: Added support for linking schemas to alternate database schemas other than the `db` set in `.yass-orm.js` by specifying a `table` name in the schema like `"databaseSchema/tableName"` (which would be used in SQL as `select * from databaseSchema.tableId where id=123`)
+	* Updated schema-sync to support the same special "slash" table names
 * 2022-10-06
 	* Feat: Added support for a `disableAutoUpdatedAt` on schema definitions to do as it says: Turn off the automatic setting of `updatedAt` fields in the `patch()` method on objects. It is on by default, but you can set `disableAutoUpdatedAt: true` in your schema definition to turn off that behavior now.
 * 2022-09-16
