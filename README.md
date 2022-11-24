@@ -5,6 +5,8 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
+* 2022-11-24
+	* Feat: Added support for linking schemas to alternate database schemas other than the `db` set in `.yass-orm.js` by specifying a `table` name in the schema like `"databaseSchema/tableName"` (which would be used in SQL as `select * from databaseSchema.tableId where id=123`)
 * 2022-10-06
 	* Feat: Added support for a `disableAutoUpdatedAt` on schema definitions to do as it says: Turn off the automatic setting of `updatedAt` fields in the `patch()` method on objects. It is on by default, but you can set `disableAutoUpdatedAt: true` in your schema definition to turn off that behavior now.
 * 2022-09-16
@@ -111,4 +113,6 @@ For tests to run successfully, you will need to do the following steps:
 * Ensure database `test` exists
 * Create two test tables:
 	* `create table yass_test1 (id int primary key auto_increment, name varchar(255), isDeleted int default 0, nonce varchar(255));`
-	* `create table yass_test2 (id varchar(255), name varchar(255), isDeleted int default 0, , nonce varchar(255));`
+	* `create table yass_test2 (id varchar(255), name varchar(255), isDeleted int default 0, nonce varchar(255));`
+* Add another database: `yass_test2`
+	* `create table yass_test3 (id varchar(255), name varchar(255), isDeleted int default 0, nonce varchar(255));`

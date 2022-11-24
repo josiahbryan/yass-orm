@@ -23,6 +23,8 @@ describe('#YASS-ORM', () => {
 
 	const fakeSchemaUuid = require('./fakeSchemaUuid').default;
 
+	const fakeSchemaDb2 = require('./fakeSchemaDb2').default;
+
 	it('should load properly', () => {});
 
 	it('should convert schema', () => {
@@ -46,9 +48,20 @@ describe('#YASS-ORM', () => {
 		UuuidClass = YassORM.loadDefinition(fakeSchemaUuid);
 		expect(typeof UuuidClass.schema).to.equal('function');
 
-		const schema = NewClass.schema();
-		expect(schema.fieldMap.id.type).to.equal('idKey');
+		const schema = UuuidClass.schema();
+		expect(schema.fieldMap.id.type).to.equal('uuidKey');
 		expect(schema.fieldMap.name.type).to.equal('varchar');
+	});
+
+	let Db2Class;
+	it('should load definition from function for secondary database schema', () => {
+		Db2Class = YassORM.loadDefinition(fakeSchemaDb2);
+		expect(typeof Db2Class.schema).to.equal('function');
+
+		const schema = Db2Class.schema();
+		expect(schema.fieldMap.id.type).to.equal('uuidKey');
+		expect(schema.fieldMap.name.type).to.equal('varchar');
+		expect(schema.table).to.equal('yass_test2/yass_test3');
 	});
 
 	let sample;
@@ -197,6 +210,35 @@ describe('#YASS-ORM', () => {
 			await sampleFoc.dbh()
 		).pquery(`delete from yass_test2 where id=:id`, sample);
 		const retest = await UuuidClass.get(sample.id);
+		expect(retest).to.equal(null);
+	});
+
+	let createdId;
+	it('should create new object in secondary database', async () => {
+		const id = uuid();
+		createdId = id;
+		sample = await Db2Class.create({ id, name: 'foobar' });
+		expect(sample.id).to.equal(id);
+		expect(sample.name).to.equal('foobar');
+		expect(sample.table()).to.equal('yass_test2/yass_test3');
+	});
+
+	it('should find object in secondary database with prefixed select from first class', async () => {
+		const [data] = await UuuidClass.withDbh((dbh) =>
+			dbh.pquery('select * from yass_test2.yass_test3 where id=:createdId', {
+				createdId,
+			}),
+		);
+		expect(data.id).to.equal(createdId);
+	});
+
+	it('should allow hard delete for objects in secondary database', async () => {
+		await Db2Class.withDbh((dbh) =>
+			dbh.pquery(`delete from yass_test2.yass_test3 where id=:id`, {
+				id: createdId,
+			}),
+		);
+		const retest = await Db2Class.get(createdId);
 		expect(retest).to.equal(null);
 	});
 });
