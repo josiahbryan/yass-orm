@@ -1,6 +1,6 @@
 {
   "name": "yass-orm",
-  "version": "1.6.12",
+  "version": "1.6.13",
   "repository": "https://github.com/josiahbryan/yass-orm",
   "description": "Yet Another Super Simple ORM",
   "main": "lib/index.js",
@@ -8,7 +8,8 @@
     "yass-orm-schema-sync": "bin/schema-sync"
   },
   "scripts": {
-    "test": "mocha --exit --reporter spec",
+    "test": "npm run test:schema-sync && mocha --exit --reporter spec",
+	"test:schema-sync": "node bin/schema-sync test/fake*.js",
     "eslint:fix:watch": "nodemon node_modules/eslint/bin/eslint.js --verbose --ignore-path .eslintignore ./lib ./bin/schema-sync --fix",
     "eslint:fix": "eslint --ignore-path .eslintignore ./lib ./bin/schema-sync --fix",
     "eslint": "eslint --ignore-path .eslintignore ./lib ./bin/schema-sync",

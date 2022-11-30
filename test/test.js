@@ -25,7 +25,7 @@ describe('#YASS-ORM', () => {
 
 	const fakeSchemaDb2 = require('./fakeSchemaDb2').default;
 
-	it('should load properly', () => {});
+	// it('should load properly', () => {});
 
 	it('should convert schema', () => {
 		const schema = YassORM.convertDefinition(fakeSchema);
@@ -40,6 +40,7 @@ describe('#YASS-ORM', () => {
 
 		const schema = NewClass.schema();
 		expect(schema.fieldMap.id.type).to.equal('idKey');
+		expect(schema.fieldMap.id.field).to.equal('id');
 		expect(schema.fieldMap.name.type).to.equal('varchar');
 	});
 
@@ -55,18 +56,27 @@ describe('#YASS-ORM', () => {
 
 	let Db2Class;
 	it('should load definition from function for secondary database schema', () => {
+		expect(NewClass.schema().fieldMap.id.field).to.equal('id');
+
 		Db2Class = YassORM.loadDefinition(fakeSchemaDb2);
+
+		// We had bugs where loading fakeSchemaDb2 poluted the field name of another class,
+		// so this checks for regressions
+		expect(NewClass.schema().fieldMap.id.field).to.equal('id');
+
 		expect(typeof Db2Class.schema).to.equal('function');
 
 		const schema = Db2Class.schema();
 		expect(schema.fieldMap.id.type).to.equal('uuidKey');
+		expect(schema.fieldMap.id.field).to.equal('id');
 		expect(schema.fieldMap.name.type).to.equal('varchar');
-		expect(schema.table).to.equal('yass_test2/yass_test3');
+		expect(schema.table).to.equal('yass_test2.yass_test3');
 	});
 
 	let sample;
 	it('should create new object', async () => {
 		sample = await NewClass.create({ name: 'foobar' });
+		// console.log(`created`, sample, NewClass);
 		expect(sample.id).to.not.equal(null);
 		expect(sample.id).to.not.equal(undefined);
 		expect(sample.id).to.be.a('number');
@@ -220,7 +230,7 @@ describe('#YASS-ORM', () => {
 		sample = await Db2Class.create({ id, name: 'foobar' });
 		expect(sample.id).to.equal(id);
 		expect(sample.name).to.equal('foobar');
-		expect(sample.table()).to.equal('yass_test2/yass_test3');
+		expect(sample.table()).to.equal('yass_test2.yass_test3');
 	});
 
 	it('should find object in secondary database with prefixed select from first class', async () => {
