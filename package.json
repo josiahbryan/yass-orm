@@ -14,7 +14,8 @@
     "eslint:fix": "eslint --ignore-path .eslintignore ./lib ./bin/schema-sync --fix",
     "eslint": "eslint --ignore-path .eslintignore ./lib ./bin/schema-sync",
     "precommit": "sh ./check-unadded-files.sh && npm run eslint:fix && npm run test",
-    "docs": "jsdoc -c jsdoc.json"
+    "docs": "jsdoc -c jsdoc.json",
+	"bump-version": "npm version ${BUMP_MODE:=patch}"
   },
   "author": "Josiah Bryan <josiahbryan@gmail.com> (https://josiahbryan.com)",
   "license": "ISC",
