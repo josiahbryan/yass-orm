@@ -5,6 +5,10 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
+* 2023-01-28
+	* Fix: Changed `debugSql` to use the same deflation done when writing data to the database (e.g. properly convert dates and booleans to their database values) and now properly quotes non-numeric strings with `'` instead of `"`.
+	* Fix: Added `JSON.decycle` polyfill to decycle json objects before stringifying them when outputting error messages to the console.
+	* Fix: Changed quoting in `finder.js` to use single quotes when outputting SQL for debugging
 * 2022-11-29
 	* Feat: Changed multi-schema format from 'x/y' to 'x.y'. This requires the (legacy) method of specifying ID field to always use a schema. So if you had schemas that said "user.userId" to load legacy data, you will need to update that to be "database.users.userId"
 * 2022-11-24
