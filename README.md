@@ -6,6 +6,7 @@ Why? Mainly for my personal use in a variety of projects.
 ## Recent changes:
 ----
 * 2023-01-28
+	* Chore: Added tests around `debugSql`'s behavior to ensure it stays stable and performs as expected in future releases
 	* Fix: Changed `debugSql` to use the same deflation done when writing data to the database (e.g. properly convert dates and booleans to their database values) and now properly quotes non-numeric strings with `'` instead of `"`.
 	* Fix: Added `JSON.decycle` polyfill to decycle json objects before stringifying them when outputting error messages to the console.
 	* Fix: Changed quoting in `finder.js` to use single quotes when outputting SQL for debugging

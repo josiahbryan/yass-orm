@@ -4,6 +4,8 @@ const { expect } = require('chai');
 const uuid = require('uuid').v4;
 const YassORM = require('../lib');
 
+const { debugSql } = YassORM.DatabaseObject;
+
 /*
 	NOTE:
 
@@ -24,8 +26,6 @@ describe('#YASS-ORM', () => {
 	const fakeSchemaUuid = require('./fakeSchemaUuid').default;
 
 	const fakeSchemaDb2 = require('./fakeSchemaDb2').default;
-
-	// it('should load properly', () => {});
 
 	it('should convert schema', () => {
 		const schema = YassORM.convertDefinition(fakeSchema);
@@ -250,5 +250,40 @@ describe('#YASS-ORM', () => {
 		);
 		const retest = await Db2Class.get(createdId);
 		expect(retest).to.equal(null);
+	});
+
+	it('should print debugging SQL with dates properly stringified', () => {
+		const dateString = debugSql(':date', {
+			date: new Date('2023-01-23 01:01:01.000Z'),
+		});
+		expect(dateString).to.equal('2023-01-23 01:01:01');
+	});
+
+	it('should print debugging SQL with nulls NOT stringified', () => {
+		const string = debugSql(':nullValue', {
+			nullValue: null,
+		});
+		expect(string).to.equal('null');
+	});
+
+	it('should print debugging SQL with numbers not quoted', () => {
+		const string = debugSql(':number', {
+			number: 1,
+		});
+		expect(string).to.equal('1');
+	});
+
+	it('should print debugging SQL with strings quoted with single quotes', () => {
+		const string = debugSql(':string', {
+			string: 'bob',
+		});
+		expect(string).to.equal("'bob'");
+	});
+
+	it('should print debugging SQL without guarding undefined', () => {
+		const string = debugSql(':string', {
+			string: undefined,
+		});
+		expect(string).to.equal('undefined');
 	});
 });
