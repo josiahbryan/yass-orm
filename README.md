@@ -5,6 +5,8 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
+* 2023-01-30
+	* Feat: Added support for config option `disableTimezone` to disable setting the timezone option on the MariaDB connector. Timezone option must not be set when connecting to PlanetScale databases, so set `disableTimezone: true` if you use PlanetScale as your DB host.
 * 2023-01-28
 	* Chore: Added tests around `debugSql`'s behavior to ensure it stays stable and performs as expected in future releases
 	* Fix: Changed `debugSql` to use the same deflation done when writing data to the database (e.g. properly convert dates and booleans to their database values) and now properly quotes non-numeric strings with `'` instead of `"`.
