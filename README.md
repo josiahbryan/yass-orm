@@ -5,6 +5,10 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
+* 2023-02-02:
+	* Feat: Made `retryIfConnectionLost` a static (and instance) method on `DatabaseObject` to allow for subclasses to override and customize the handle used by their class instances
+	* Feat: Added support for `disableFunctions` config option to disable uploading the `match_ration` function and the ID triggers for hosts that don't support functions/triggers (e.g. PlanetScale)
+	* Feat: Added support for overriding the config file used for a process by setting a file path in the `YASS_CONFIG` environment variable before starting the process. If set, we will use that file specified and ignore any `.yass-orm.js` or related files.
 * 2023-01-30
 	* Feat: Added support for config option `disableTimezone` to disable setting the timezone option on the MariaDB connector. Timezone option must not be set when connecting to PlanetScale databases, so set `disableTimezone: true` if you use PlanetScale as your DB host.
 * 2023-01-28
