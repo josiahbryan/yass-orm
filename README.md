@@ -5,6 +5,8 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
+* 2023-02-07:
+	* fix: Added explicit throw-on-null-handle modes to better spot where errors come from inside `retryIfConnectionLost`
 * 2023-02-02:
 	* Feat: Made `retryIfConnectionLost` a static (and instance) method on `DatabaseObject` to allow for subclasses to override and customize the handle used by their class instances
 	* Feat: Added support for `disableFunctions` config option to disable uploading the `match_ration` function and the ID triggers for hosts that don't support functions/triggers (e.g. PlanetScale)
