@@ -5,6 +5,8 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
+* 2023-02-12
+	* Added support for literal 'date' types in MySQL, stored as 'YYYY-MM-DD' on disk and cast to a String in javascript
 * 2023-02-07:
 	* fix: Added explicit throw-on-null-handle modes to better spot where errors come from inside `retryIfConnectionLost`
 * 2023-02-02:
