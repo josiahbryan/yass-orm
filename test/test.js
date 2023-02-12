@@ -31,6 +31,7 @@ describe('#YASS-ORM', () => {
 		const schema = YassORM.convertDefinition(fakeSchema);
 		expect(schema.fieldMap.id.type).to.equal('idKey');
 		expect(schema.fieldMap.name.type).to.equal('varchar');
+		expect(schema.fieldMap.date.type).to.equal('date');
 	});
 
 	let NewClass;
@@ -42,35 +43,18 @@ describe('#YASS-ORM', () => {
 		expect(schema.fieldMap.id.type).to.equal('idKey');
 		expect(schema.fieldMap.id.field).to.equal('id');
 		expect(schema.fieldMap.name.type).to.equal('varchar');
+		expect(schema.fieldMap.date.type).to.equal('date');
 	});
 
-	let UuuidClass;
-	it('should load definition from function for uuid schema', () => {
-		UuuidClass = YassORM.loadDefinition(fakeSchemaUuid);
-		expect(typeof UuuidClass.schema).to.equal('function');
-
-		const schema = UuuidClass.schema();
-		expect(schema.fieldMap.id.type).to.equal('uuidKey');
-		expect(schema.fieldMap.name.type).to.equal('varchar');
-	});
-
-	let Db2Class;
-	it('should load definition from function for secondary database schema', () => {
-		expect(NewClass.schema().fieldMap.id.field).to.equal('id');
-
-		Db2Class = YassORM.loadDefinition(fakeSchemaDb2);
-
-		// We had bugs where loading fakeSchemaDb2 poluted the field name of another class,
-		// so this checks for regressions
-		expect(NewClass.schema().fieldMap.id.field).to.equal('id');
-
-		expect(typeof Db2Class.schema).to.equal('function');
-
-		const schema = Db2Class.schema();
-		expect(schema.fieldMap.id.type).to.equal('uuidKey');
-		expect(schema.fieldMap.id.field).to.equal('id');
-		expect(schema.fieldMap.name.type).to.equal('varchar');
-		expect(schema.table).to.equal('yass_test2.yass_test3');
+	it('should write and read dates as YYYY-MM-DD', async () => {
+		const dateString = '2022-12-01';
+		const sampleFoc = await NewClass.findOrCreate({
+			name: 'date-test',
+			date: dateString,
+		});
+		expect(sampleFoc.name).to.equal('date-test');
+		expect(sampleFoc.date).to.equal(dateString);
+		await sampleFoc.reallyDelete();
 	});
 
 	let sample;
@@ -140,6 +124,16 @@ describe('#YASS-ORM', () => {
 		});
 		const retest = await NewClass.get(sampleFoc.id);
 		expect(retest).to.equal(null);
+	});
+
+	let UuuidClass;
+	it('should load definition from function for uuid schema', () => {
+		UuuidClass = YassORM.loadDefinition(fakeSchemaUuid);
+		expect(typeof UuuidClass.schema).to.equal('function');
+
+		const schema = UuuidClass.schema();
+		expect(schema.fieldMap.id.type).to.equal('uuidKey');
+		expect(schema.fieldMap.name.type).to.equal('varchar');
 	});
 
 	it('should create new object with a uuid key', async () => {
@@ -221,6 +215,25 @@ describe('#YASS-ORM', () => {
 		).pquery(`delete from yass_test2 where id=:id`, sample);
 		const retest = await UuuidClass.get(sample.id);
 		expect(retest).to.equal(null);
+	});
+
+	let Db2Class;
+	it('should load definition from function for secondary database schema', () => {
+		expect(NewClass.schema().fieldMap.id.field).to.equal('id');
+
+		Db2Class = YassORM.loadDefinition(fakeSchemaDb2);
+
+		// We had bugs where loading fakeSchemaDb2 poluted the field name of another class,
+		// so this checks for regressions
+		expect(NewClass.schema().fieldMap.id.field).to.equal('id');
+
+		expect(typeof Db2Class.schema).to.equal('function');
+
+		const schema = Db2Class.schema();
+		expect(schema.fieldMap.id.type).to.equal('uuidKey');
+		expect(schema.fieldMap.id.field).to.equal('id');
+		expect(schema.fieldMap.name.type).to.equal('varchar');
+		expect(schema.table).to.equal('yass_test2.yass_test3');
 	});
 
 	let createdId;
