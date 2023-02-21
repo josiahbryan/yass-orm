@@ -5,6 +5,8 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
+* 2023-02-21
+	* Added support for config prop `disableFullGroupByPerSession`. When set to a truthy value, YASS will execute `SET sql_mode=(SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY',''));` once on every connection at initial connection time.
 * 2023-02-12
 	* Added support for literal 'date' types in MySQL, stored as 'YYYY-MM-DD' on disk and cast to a String in javascript
 * 2023-02-07:
