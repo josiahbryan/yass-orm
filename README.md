@@ -5,6 +5,8 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
+* 2023-02-23
+	* Fixed deflating sub-objects with schemas with `undefined` values - previously, if a sub-object had a declared SQL field type but the value was `undefined`, the SQL execution would throw an error about an undefined placeholder. This fix stops adding `undefined` sub-object fields to the deflated values to prevent those SQL errors.
 * 2023-02-21
 	* Added support for config prop `disableFullGroupByPerSession`. When set to a truthy value, YASS will execute `SET sql_mode=(SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY',''));` once on every connection at initial connection time.
 * 2023-02-12
