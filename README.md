@@ -5,6 +5,8 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
+* 2023-03-27
+	* Added new config field, `enableAlternateSchemaInTableName`, off by default. If true, then you can override default schema in schema definition files with dot notation, such as "schema.tableName". This has the knock-on effect of requiring you to update any tables where you use dot notation to specify the ID field, like "foobar.foobarId" to also include the schema name if you enable this field. So that example would become: "foobarSchema.foobar.foobarId". Note that in previous releases the functionality added by `enableAlternateSchemaInTableName` was ON automatically, so if you ARE using alternate schemas in table names, you must enable this flag to retain the same functionality. This functionality was moved behind this flag to stop breaking older legacy code that relied on embedding the ID field in the table name.
 * 2023-02-23
 	* Fixed deflating sub-objects with schemas with `undefined` values - previously, if a sub-object had a declared SQL field type but the value was `undefined`, the SQL execution would throw an error about an undefined placeholder. This fix stops adding `undefined` sub-object fields to the deflated values to prevent those SQL errors.
 * 2023-02-21

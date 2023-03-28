@@ -221,6 +221,8 @@ describe('#YASS-ORM', () => {
 	it('should load definition from function for secondary database schema', () => {
 		expect(NewClass.schema().fieldMap.id.field).to.equal('id');
 
+		YassORM.config.enableAlternateSchemaInTableName = true;
+
 		Db2Class = YassORM.loadDefinition(fakeSchemaDb2);
 
 		// We had bugs where loading fakeSchemaDb2 poluted the field name of another class,
