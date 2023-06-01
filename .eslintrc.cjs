@@ -15,6 +15,8 @@ module.exports = {
 		// Because we're coming from C++, many architectural decisions
 		// will use value accessors as functions
 		'class-methods-use-this': 'off',
+		'space-before-blocks': 'error',
+		'keyword-spacing': 'error',
 		'no-param-reassign': [
 			'error',
 			{

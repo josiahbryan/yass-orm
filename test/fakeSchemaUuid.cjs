@@ -4,5 +4,6 @@ exports.default = ({ types: t }) => ({
 		id: t.uuidKey,
 		name: t.string,
 		nonce: t.string,
+		linkTest: t.linked('fakeSchema'),
 	},
 });

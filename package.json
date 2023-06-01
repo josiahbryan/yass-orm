@@ -4,12 +4,13 @@
   "repository": "https://github.com/josiahbryan/yass-orm",
   "description": "Yet Another Super Simple ORM",
   "main": "lib/index.js",
+  "type": "module",
   "bin": {
     "yass-orm-schema-sync": "bin/schema-sync"
   },
   "scripts": {
     "test": "npm run test:schema-sync && mocha --exit --reporter spec",
-    "test:schema-sync": "node bin/schema-sync test/fake*.js",
+    "test:schema-sync": "node bin/schema-sync test/fake*.cjs",
     "eslint:fix:watch": "nodemon node_modules/eslint/bin/eslint.js --verbose --ignore-path .eslintignore ./lib ./bin/schema-sync --fix",
     "eslint:fix": "eslint --ignore-path .eslintignore ./lib ./bin/schema-sync --fix",
     "eslint": "eslint --ignore-path .eslintignore ./lib ./bin/schema-sync",

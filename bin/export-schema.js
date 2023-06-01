@@ -2,25 +2,27 @@
 
 /**
  * Simple utility to dump the database to a set of definitions and models
- * 
+ *
  * Usage: ./export-schema tmp/defs tmp/models
- * 
+ *
  * Write the database schema (configured in .yass-orm.js) to those folders.
- * 
+ *
  */
 
 /* eslint-disable no-console */
 const syncUtil = require('../lib/sync-to-db');
 
 async function main() {
-	let [ defsPath, modelsPath ] = process.argv.slice(2);
+	let [defsPath, modelsPath] = process.argv.slice(2);
 	if (!defsPath || !modelsPath) {
-		console.warn(`Warning: No defsPath or modelsPath given on command line, assuming './tmp/(db|models)'`);
+		console.warn(
+			`Warning: No defsPath or modelsPath given on command line, assuming './tmp/(db|models)'`,
+		);
 
 		defsPath = './tmp/defs';
 		modelsPath = './tmp/models';
 	}
-	
+
 	await syncUtil.dumpDatabaseSchemas({ defsPath, modelsPath });
 }
 

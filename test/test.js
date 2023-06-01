@@ -1,10 +1,13 @@
 /* eslint-disable global-require */
 /* global it, describe */
-const { expect } = require('chai');
-const uuid = require('uuid').v4;
-const YassORM = require('../lib');
+import { expect } from 'chai';
+import { v4 as uuid } from 'uuid';
+import { createRequire } from 'node:module';
+import YassORM from '../lib/index.js';
 
 const { debugSql } = YassORM.DatabaseObject;
+
+const require = createRequire(import.meta.url);
 
 /*
 	NOTE:
@@ -21,11 +24,13 @@ const { debugSql } = YassORM.DatabaseObject;
 */
 
 describe('#YASS-ORM', () => {
-	const fakeSchema = require('./fakeSchema').default;
+	const fakeSchema = require('./fakeSchema.cjs').default;
 
-	const fakeSchemaUuid = require('./fakeSchemaUuid').default;
+	class NewClass extends YassORM.loadDefinition('./fakeSchema.cjs') {}
 
-	const fakeSchemaDb2 = require('./fakeSchemaDb2').default;
+	const fakeSchemaUuid = require('./fakeSchemaUuid.cjs').default;
+
+	const fakeSchemaDb2 = require('./fakeSchemaDb2.cjs').default;
 
 	it('should convert schema', () => {
 		const schema = YassORM.convertDefinition(fakeSchema);
@@ -34,9 +39,10 @@ describe('#YASS-ORM', () => {
 		expect(schema.fieldMap.date.type).to.equal('date');
 	});
 
-	let NewClass;
+	// let NewClass;
 	it('should load definition from function', () => {
-		NewClass = YassORM.loadDefinition(fakeSchema);
+		// NewClass = YassORM.loadDefinition(fakeSchema);
+		YassORM.DatabaseObject.modelClassResolution.fakeSchema = NewClass;
 		expect(typeof NewClass.schema).to.equal('function');
 
 		const schema = NewClass.schema();
@@ -76,8 +82,9 @@ describe('#YASS-ORM', () => {
 		expect(sampleFoc.name).to.equal('foc1');
 	});
 
+	let foc2;
 	it('should find same object as before in findOrCreate', async () => {
-		const foc2 = await NewClass.findOrCreate({ name: 'foc1' });
+		foc2 = await NewClass.findOrCreate({ name: 'foc1' });
 		expect(foc2.id).to.not.equal(null);
 		expect(foc2.id).to.not.equal(undefined);
 		expect(foc2.id).to.be.a('number');
@@ -129,6 +136,7 @@ describe('#YASS-ORM', () => {
 	let UuuidClass;
 	it('should load definition from function for uuid schema', () => {
 		UuuidClass = YassORM.loadDefinition(fakeSchemaUuid);
+		YassORM.DatabaseObject.modelClassResolution.fakeSchemaUuid = UuuidClass;
 		expect(typeof UuuidClass.schema).to.equal('function');
 
 		const schema = UuuidClass.schema();
@@ -138,25 +146,53 @@ describe('#YASS-ORM', () => {
 
 	it('should create new object with a uuid key', async () => {
 		const id = uuid();
-		sample = await UuuidClass.create({ id, name: 'foobar' });
+		sample = await UuuidClass.create({
+			id,
+			name: 'foobar',
+			linkTest: foc2,
+		});
 		expect(sample.id).to.not.equal(null);
 		expect(sample.id).to.not.equal(undefined);
 		expect(sample.id).to.be.a('string');
 		expect(sample.id).to.equal(id);
 		expect(sample.name).to.equal('foobar');
+		expect(sample.linkTest.id).to.equal(foc2.id);
 	});
 
 	it('should patch objects with uuid keys', async () => {
 		await sample.patch({
 			name: 'framitz',
 		});
+
 		// Read straight from DB
 		const raw = (
 			await (
 				await UuuidClass.dbh()
-			).pquery(`select name from yass_test2 where id=:id`, sample)
+			).roQuery(`select name from yass_test2 where id=:id`, sample)
 		)[0];
+
 		expect(raw.name).to.equal('framitz');
+	});
+
+	it('should properly re-load and resolve linked objects', async () => {
+		const sampleReload = await UuuidClass.get(sample.id);
+
+		expect(sampleReload.linkTest.id).equals(sample.linkTest.id);
+		expect(sampleReload.linkTest.id).equals(foc2.id);
+
+		// console.log('sampleReload', sampleReload);
+	});
+
+	it('should properly hard-delete sub-sample', async () => {
+		await foc2.reallyDelete();
+
+		// Read straight from DB
+		const rows =
+			(await NewClass.withDbh((dbh) =>
+				dbh.roQuery(`select id from yass_test1 where id=:id`, foc2),
+			)) || [];
+
+		expect(rows.length).to.equal(0);
 	});
 
 	it('should soft-delete objects with uuid keys', async () => {
@@ -224,6 +260,7 @@ describe('#YASS-ORM', () => {
 		YassORM.config.enableAlternateSchemaInTableName = true;
 
 		Db2Class = YassORM.loadDefinition(fakeSchemaDb2);
+		YassORM.DatabaseObject.modelClassResolution.fakeSchemaDb2 = Db2Class;
 
 		// We had bugs where loading fakeSchemaDb2 poluted the field name of another class,
 		// so this checks for regressions
