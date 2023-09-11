@@ -271,7 +271,7 @@ describe('#YASS-ORM', () => {
 		const dateString = debugSql(':date', {
 			date: new Date('2023-01-23 01:01:01.000Z'),
 		});
-		expect(dateString).to.equal('2023-01-23 01:01:01');
+		expect(dateString).to.equal(`'2023-01-23 01:01:01'`);
 	});
 
 	it('should print debugging SQL with nulls NOT stringified', () => {

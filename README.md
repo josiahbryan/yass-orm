@@ -5,6 +5,11 @@ Why? Mainly for my personal use in a variety of projects.
 
 ## Recent changes:
 ----
+* 2023-09-11
+	* (fix) Updated `debugSql` to properly quote dates in it's string output, making it easier to copy/paste SQL for testing
+	* (chore) Added es6 string template syntax helpers internally to the codebase in some spots
+	* (feat) Added the ability to override `readonlyNodes`, `disableFullGroupByPerSession`, and `disableTimezone` when calling the `dbh(...)` factory directly - useful for connecting to a specific server instead of a configured cluster, e.g. for reporting, etc
+	
 * 2023-04-26
 	* Added `utf8mb4_general_ci` to the set of default collations so as to not have to alter entire schemas
 * 2023-03-27
