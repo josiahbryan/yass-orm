@@ -3,5 +3,7 @@ exports.default = ({ types: t }) => ({
 	schema: {
 		name: t.string,
 		date: t.date,
+		jsonSample: t.object(),
 	},
+	indexes: { testJsonIndex: ['jsonSample->>"$.testValue"'] },
 });

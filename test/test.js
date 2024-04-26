@@ -301,4 +301,17 @@ describe('#YASS-ORM', () => {
 		});
 		expect(string).to.equal('undefined');
 	});
+
+	it('should find JSON index on test table', async () => {
+		const result = await NewClass.withDbh((dbh) =>
+			dbh.pquery(
+				`show indexes from test.yass_test1 where key_name = 'testJsonIndex'`,
+			),
+		);
+
+		expect(result.length).to.equal(1);
+		expect(result[0].Expression).to.include(
+			'json_unquote(json_extract(`jsonSample`,',
+		);
+	});
 });
