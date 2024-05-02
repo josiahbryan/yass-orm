@@ -8,7 +8,12 @@ Why? Mainly for my personal use in a variety of projects.
 
 ---
 
+- 2024-05-02
+
+  - (feat) Added `setOnConnectRetryFailed` to catch retry failure and customize how the library responds. By default, we now call `process.exit(1)` on the assumption that the app will restart.
+
 - 2024-04-11
+
   - (feat) Added support for functional indices (Requires mysql 8.0.13 or newer.) Using the MySQL JSON operator (`->>`) is now supported when specifying indexes. For example, if you include a key like this in your `indexes` array in a schema:
 
   ```json
@@ -24,7 +29,7 @@ Why? Mainly for my personal use in a variety of projects.
   PlanetScale has a wonderful writeup on this and other JSON tips in SQL: <https://planetscale.com/blog/indexing-json-in-mysql#functional-indexes>
 
   - (feat) Added new config option, `connectTimeout` (units: milliseconds), which defaults to `3000` milliseconds if not specified. Added to support more reliable connections for intercontinental connections (e.g. India>SF)
-  
+
 - 2023-09-11
   - (fix) Updated `debugSql` to properly quote dates in it's string output, making it easier to copy/paste SQL for testing
   - (chore) Added es6 string template syntax helpers internally to the codebase in some spots
