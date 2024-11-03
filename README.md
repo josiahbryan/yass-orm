@@ -8,6 +8,10 @@ Why? Mainly for my personal use in a variety of projects.
 
 ---
 
+- 2024-11-03
+
+- (fix) Added explicit warning if you pass more than 3 args to 'findOrCreate' because that would be useless to do anyway.
+
 - 2024-05-02
 
   - (feat) Added `setOnConnectRetryFailed` to catch retry failure and customize how the library responds. By default, we now call `process.exit(1)` on the assumption that the app will restart.
