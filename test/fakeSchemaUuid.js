@@ -5,4 +5,10 @@ exports.default = ({ types: t }) => ({
 		name: t.string,
 		nonce: t.string,
 	},
+
+	indexes: {
+		idx_name: ['name'],
+		idx_nonce: ['nonce DESC'],
+		idx_name_and_nonce: '(name, nonce(3))',
+	},
 });

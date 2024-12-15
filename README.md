@@ -8,9 +8,64 @@ Why? Mainly for my personal use in a variety of projects.
 
 ---
 
+- 2024-12-15
+  - (feat) Added better support for JSON field indexes by not recreating them every time - we now properly match them to the on-disk explain output and properly detect if they already exist.
+  - (feat) Added support for three new ways to specify indexes: Raw SQL (`(name, age DESC)`), array with inline arguments (`['name(255)', 'age DESC', 'isDeleted']`) or 100% manual (`idx_whatever: true`)
+
+	**Documentation on Methods of indexing (Old and New)**
+
+	As a refresher, indexes are specified in your schema like this:
+
+	```javascript
+	{
+		table: 'example_table',
+		schema: {
+			id: t.uuidKey,
+			name: t.string,
+			nonce: t.string,
+			props: t.object(),
+		},
+
+		indexes: {
+			// Different ways to specify an index (see docs below)
+			idx_name: ['name'], // (a) "Column-only"
+			idx_prop_date: ['props->>"$.date"'], // (b) "JSON"
+			idx_nonce: ['nonce DESC'], // (c) "Column + arguments"
+			idx_name_and_nonce: '(name, nonce(3))', // (d) "SQL String for Columns"
+			idx_manual_whatever: true, // (e) "Full Manual Control"
+		},
+	}
+	```
+
+	Ways to specify an index:
+
+	1. *Column-Only*
+		- Example: `idx_foobar: ['foo', 'bar', 'baz']` - self explanatory
+		- Columns are each checked to ensure they exist in the schema and any of them do not exist, errors are logged and the index will not be created.
+   	2. *JSON*
+		- Example: `idx_foobar: ['foo->>'$.bar', 'baz']` - indexes the field 'bar' inside a JSON string stored in column 'foo', and regular column 'baz'
+		- This method of indexing previously existed in the codebase, but was enhanced by this update to properly detect the JSON column in the index and not re-create the index every time we run the sync
+	3. Column + "arguments"
+		- Arguments could be anything valid SQL, like `(255)` or `DESC`
+		- Example: `idx_foobar: ['foo(255)', 'bar DESC', 'baz']`
+		- This allows you more full-grained control over the index spec while still keeping the schema-verification guarantees that the sync script does (e.g. it still checks your schema to make sure that `foo`, `bar`, and `baz` are valid columns defined in your schema)
+    4. SQL String for Columns
+		- Example: `idx_foobar: "(foo, bar DESC, baz)"` 
+		- The **string MUST start with '(' and end with ')'** - This is just extra validation to ensure you really did mean to give us SQL and didn't just accidentally give us some other string. If you don't wrap it in parenthesis, we will ignore your index completely. The sync process will log an error to the console, but won't stop the sync for the other indexes/
+		- We assume you know your SQL well enough that you properly escaped any column names
+		- We do NOT parse the string and we do not verify that the columns exist - that's up to you
+		- We just give the string to the database like 'create index idx_foobar on whatever_table ${yourStringHere}`
+		- **IMPORTANT** Since we don't parse the string, we can't tell if the index on disk in the database has been changed, we just know if the index itself exists (`idx_foobar`) - so if you change the string in your schema, you **MUST** change the index name to force the sync to re-create it, e.g. change it from `idx_foobar` to `idx_foobar_v2` or something - then the sync WILL drop the old `idx_foobar` after creating `idx_foobar_v2`
+	5. Full Manual Control
+		- Example: `idx_foobar: true`
+		- There's nothing else for you to do in the schema besides giving the index name and some truthy value - this just keeps the sync from deleting the index on disk when the sync runs.
+		- The rest is up to you to create it however you want, usually by going to the CLI or Workbench and doing some variant of "create index X on TableY as (...)" or "alter table TableY add index Foobar" etc
+		- This gives you full control over the index creation, and we don't bother your index at all as long as you tell us the name here.
+		- Obviously, it goes without saying, we don't check the column names or anything like that either.
+
 - 2024-11-03
 
-- (fix) Added explicit warning if you pass more than 3 args to 'findOrCreate' because that would be useless to do anyway.
+  - (fix) Added explicit warning if you pass more than 3 args to 'findOrCreate' because that would be useless to do anyway.
 
 - 2024-05-02
 
