@@ -314,4 +314,16 @@ describe('#YASS-ORM', () => {
 			'json_unquote(json_extract(`jsonSample`,',
 		);
 	});
+
+	it('should find fulltext index on test table', async () => {
+		const result = await UuuidClass.withDbh((dbh) =>
+			dbh.pquery(
+				`show indexes from yass_test2 where key_name = 'idx_name_fulltext'`,
+				{},
+			),
+		);
+
+		expect(result.length).to.equal(1);
+		expect(result[0].Index_type).to.equal('FULLTEXT');
+	});
 });

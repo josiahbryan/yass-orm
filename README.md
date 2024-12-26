@@ -8,6 +8,46 @@ Why? Mainly for my personal use in a variety of projects.
 
 ---
 
+- 2024-12-26
+  - (feat) Added support for fulltext index specifications, extending the index methods below with two ways to specify full-texxt indexes:
+
+	1. Make an index "fulltext" by setting the first column to "FULLTEXT", for example:
+
+		```javascript
+		{
+			indexes: {
+				idx_ex_ft: ['FULLTEXT', 'name'],
+			}
+		}
+		```
+
+		YASS will use that 'FULLTEXT' string as a "hint" and modify it's accordingly. Instead of generating:
+		
+		```sql
+		 create index idx_ex_ft on example_table (name);
+		 ```
+
+		 We will generate:
+		 ```sql
+		 create fulltext index on example_table (name);
+		 ```
+
+		 (Note how the `fulltext` modifier must come before the `index` keyword)
+
+	2. Instead of using the first column, you can provide an index spec as an object with (currently) two props supported, `fulltext` and `cols`. The `cols` property supports all the same formats described below and is parsed identically as described below, no change to current functionality. The `fulltext` sibling prop is used to enable the same SQL transformation as described above (e.g. `create fulltext index` vs `create index`).
+
+		Example of this style:
+
+		```javascript
+		{
+			indexes: {
+				idx_ex_ft: { fulltext: true, cols: ['name'] }
+			}
+		}
+		```
+
+		
+
 - 2024-12-15
   - (feat) Added better support for JSON field indexes by not recreating them every time - we now properly match them to the on-disk explain output and properly detect if they already exist.
   - (feat) Added support for three new ways to specify indexes: Raw SQL (`(name, age DESC)`), array with inline arguments (`['name(255)', 'age DESC', 'isDeleted']`) or 100% manual (`idx_whatever: true`)
@@ -42,21 +82,21 @@ Why? Mainly for my personal use in a variety of projects.
 	1. *Column-Only*
 		- Example: `idx_foobar: ['foo', 'bar', 'baz']` - self explanatory
 		- Columns are each checked to ensure they exist in the schema and any of them do not exist, errors are logged and the index will not be created.
-   	2. *JSON*
+   	1. *JSON*
 		- Example: `idx_foobar: ['foo->>'$.bar', 'baz']` - indexes the field 'bar' inside a JSON string stored in column 'foo', and regular column 'baz'
 		- This method of indexing previously existed in the codebase, but was enhanced by this update to properly detect the JSON column in the index and not re-create the index every time we run the sync
-	3. Column + "arguments"
+	2. Column + "arguments"
 		- Arguments could be anything valid SQL, like `(255)` or `DESC`
 		- Example: `idx_foobar: ['foo(255)', 'bar DESC', 'baz']`
 		- This allows you more full-grained control over the index spec while still keeping the schema-verification guarantees that the sync script does (e.g. it still checks your schema to make sure that `foo`, `bar`, and `baz` are valid columns defined in your schema)
-    4. SQL String for Columns
+    3. SQL String for Columns
 		- Example: `idx_foobar: "(foo, bar DESC, baz)"` 
 		- The **string MUST start with '(' and end with ')'** - This is just extra validation to ensure you really did mean to give us SQL and didn't just accidentally give us some other string. If you don't wrap it in parenthesis, we will ignore your index completely. The sync process will log an error to the console, but won't stop the sync for the other indexes/
 		- We assume you know your SQL well enough that you properly escaped any column names
 		- We do NOT parse the string and we do not verify that the columns exist - that's up to you
 		- We just give the string to the database like 'create index idx_foobar on whatever_table ${yourStringHere}`
 		- **IMPORTANT** Since we don't parse the string, we can't tell if the index on disk in the database has been changed, we just know if the index itself exists (`idx_foobar`) - so if you change the string in your schema, you **MUST** change the index name to force the sync to re-create it, e.g. change it from `idx_foobar` to `idx_foobar_v2` or something - then the sync WILL drop the old `idx_foobar` after creating `idx_foobar_v2`
-	5. Full Manual Control
+	4. Full Manual Control
 		- Example: `idx_foobar: true`
 		- There's nothing else for you to do in the schema besides giving the index name and some truthy value - this just keeps the sync from deleting the index on disk when the sync runs.
 		- The rest is up to you to create it however you want, usually by going to the CLI or Workbench and doing some variant of "create index X on TableY as (...)" or "alter table TableY add index Foobar" etc
