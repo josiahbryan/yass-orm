@@ -3,6 +3,7 @@
 const { expect } = require('chai');
 const uuid = require('uuid').v4;
 const YassORM = require('../lib');
+const { checkJsonSupport } = require('../lib/sync-to-db');
 
 const { debugSql } = YassORM.DatabaseObject;
 
@@ -303,6 +304,14 @@ describe('#YASS-ORM', () => {
 	});
 
 	it('should find JSON index on test table', async () => {
+		const jsonSupported = await checkJsonSupport();
+		if (!jsonSupported) {
+			console.warn(
+				`JSON not supported, skipping test 'should find JSON index on test table'`,
+			);
+			return;
+		}
+
 		const result = await NewClass.withDbh((dbh) =>
 			dbh.pquery(
 				`show indexes from test.yass_test1 where key_name = 'testJsonIndex'`,

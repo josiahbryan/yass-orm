@@ -8,6 +8,11 @@ Why? Mainly for my personal use in a variety of projects.
 
 ---
 
+- 2025-05-27
+  - (feat) Added detection of JSON index support when syncing schema, and automatically doesn't try to create indexes containing JSON.
+  - (fix) Added better error capturing when executing SQL to sync the tables so as to not crash the entire sync for a single problem table, logs errors at end of each table if present.
+  - (chore) Documentation update: You can set YASS_ALLOW_DROP=1 in your environment to allow dropping columns when syncing. By default, the sync process DOES NOT drop columns that you remove from your schema to preserve data in case you accidentally removed them.
+
 - 2024-12-26
   - (feat) Added support for fulltext index specifications, extending the index methods below with two ways to specify full-texxt indexes:
 
