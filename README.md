@@ -7,6 +7,8 @@ Why? Mainly for my personal use in a variety of projects.
 ## Recent changes
 
 ---
+- 2025-04-12
+  - (feat) Added caching of the model classes loaded by _resolvedLinkedModel(), which is called internally when you define a related field using `t.linked('model-class-name')`. This reduces the disk hits considerably, which can significantly increase performance under heavy production loads.
 
 - 2025-05-27
   - (feat) Added detection of JSON index support when syncing schema, and automatically doesn't try to create indexes containing JSON.
@@ -14,7 +16,7 @@ Why? Mainly for my personal use in a variety of projects.
   - (chore) Documentation update: You can set YASS_ALLOW_DROP=1 in your environment to allow dropping columns when syncing. By default, the sync process DOES NOT drop columns that you remove from your schema to preserve data in case you accidentally removed them.
 
 - 2024-12-26
-  - (feat) Added support for fulltext index specifications, extending the index methods below with two ways to specify full-texxt indexes:
+  - (feat) Added support for fulltext index specifications, extending the index methods below with two ways to specify full-text indexes:
 
 	1. Make an index "fulltext" by setting the first column to "FULLTEXT", for example:
 
