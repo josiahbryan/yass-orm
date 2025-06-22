@@ -7,6 +7,13 @@ Why? Mainly for my personal use in a variety of projects.
 ## Recent changes
 
 ---
+- 2025-06-22
+  - (feat) Added comprehensive load balancing system for database read operations in [lib/load-balancing/](lib/load-balancing/) folder.
+    -  The system supports multiple strategies including Round Robin (default) and Random selection, plus the ability to add custom load balancers. 
+    -  The architecture uses target-based routing with a 3-level configuration hierarchy (global → per-target → per-query) for maximum flexibility. 
+    -  To set a custom strategy, use the `LoadBalancerManager` class or extend [the `LoadBalancer` base class](lib/load-balancing/LoadBalancer.js). 
+    -  See [lib/load-balancing/README.md](lib/load-balancing/README.md) for comprehensive documentation and usage examples, and check [lib/load-balancing/LoadBalancer.js](lib/load-balancing/LoadBalancer.js) for extensive JSDoc documentation on the interface and implementation patterns.
+
 - 2025-04-12
   - (feat) Added caching of the model classes loaded by _resolvedLinkedModel(), which is called internally when you define a related field using `t.linked('model-class-name')`. This reduces the disk hits considerably, which can significantly increase performance under heavy production loads.
 
