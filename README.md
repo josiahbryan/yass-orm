@@ -13,6 +13,7 @@ Why? Mainly for my personal use in a variety of projects.
     -  The architecture uses target-based routing with a 3-level configuration hierarchy (global → per-target → per-query) for maximum flexibility. 
     -  To set a custom strategy, use the `LoadBalancerManager` class or extend [the `LoadBalancer` base class](lib/load-balancing/LoadBalancer.js). 
     -  See [lib/load-balancing/README.md](lib/load-balancing/README.md) for comprehensive documentation and usage examples, and check [lib/load-balancing/LoadBalancer.js](lib/load-balancing/LoadBalancer.js) for extensive JSDoc documentation on the interface and implementation patterns.
+    -  Note: `LoadBalancer` and the `loadBalancerManager` instance used internally are both exported for creating/setting custom strategies or changing the strategy externally.
   -  (fix) Fixed an assumption in `DatabaseObject` method `withDbh` - previously, if you passed a string as the first arg, it would only execute that as SQL if you ALSO passed a truthy value for the 2nd arg - which for some queries didn't make sense, since not all queries require props. It has been adjusted now so that if the first prop is a string. it will execute the query regardless. (The usual function-style callback as the first arg is still supported, that was not changed.)
   -  (feat) Added pass-thru of any other options passed to the `handle` method internally. This allows requesting a database handle at runtime with different server props/schema props than what is configured.
 

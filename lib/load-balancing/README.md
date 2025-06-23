@@ -166,14 +166,26 @@ Common configuration options supported across strategies:
 For enterprise packages, you can inject custom load balancers globally:
 
 ```javascript
-const { LoadBalancerManager } = require('yass-orm/lib/load-balancing');
 
-// Global manager access for enterprise features
-const globalManager = new LoadBalancerManager('roundRobin');
-await globalManager.setCustomLoadBalancer(EnterpriseLoadBalancer);
+// The `loadBalancerManager` is the instantiated load balance manager actively used internally
+const { LoadBalancer, loadBalancerManager } = require('yass-orm/lib/load-balancing');
 
-// Export for use by dbh.js
-module.exports = { loadBalancerManager: globalManager };
+// Create your EnterpriseLoadBalancer class
+class EnterpriseLoadBalancer extends LoadBalancer {
+	// Do fancy stuff here...
+} 
+
+// Pass the class itself to the library, the library will instantiate internally.
+// This automatically switches strategies internally to use your balancer here for the next query.
+// (This sets the class used for strategy named 'custom')
+await loadBalancerManager.setCustomLoadBalancer(EnterpriseLoadBalancer);
+
+// You can always remove the custom balancer if needed later
+await loadBalancerManager.removeCustomLoadBalancer()
+
+// ... or set a new strategy instead of removing
+await loadBalanceManager.setStrategy('roundRobin');
+
 ```
 
 ## Target Identity & Metrics
