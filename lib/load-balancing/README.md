@@ -19,37 +19,44 @@ The load balancing system consists of three main components:
 The system supports a powerful 3-level configuration hierarchy for maximum flexibility:
 
 ### 1. Global Configuration (Constructor)
+
 ```javascript
-new CustomLoadBalancer({
+loadBalanceManager.setStrategy('custom', {
 	queryTimeoutMs: 30000,
 	maxRetries: 3,
-	customOption: 'value'
+	customOption: 'value',
 });
 ```
 
+(See notes on setting custom strategies below under `Enterprise Integration`)
+
 ### 2. Per-Target Configuration (Config File)
+
 ```javascript
-readonlyNodes: [{
-	host: 'slow-db.example.com',
-	loadBalancerOptions: {
-		queryTimeoutMs: 60000,    // 1 minute for slow server
-		maxRetries: 5,            // More retries for unreliable server
-		customOption: 'value'     // Strategy-specific options
-	}
-}]
+readonlyNodes: [
+	{
+		host: 'slow-db.example.com',
+		loadBalancerOptions: {
+			queryTimeoutMs: 60000, // 1 minute for slow server
+			maxRetries: 5, // More retries for unreliable server
+			customOption: 'value', // Strategy-specific options
+		},
+	},
+];
 ```
 
 ### 3. Per-Query Configuration (Application Code)
+
 ```javascript
 await conn.roQuery(
 	'SELECT * FROM large_table',
-	[],
+	{},
 	{
 		loadBalancerOptions: {
-			queryTimeoutMs: 120000,  // 2 minutes for this specific query
-			maxRetries: 1            // Single attempt for this query
-		}
-	}
+			queryTimeoutMs: 120000, // 2 minutes for this specific query
+			maxRetries: 1, // Single attempt for this query
+		},
+	},
 );
 ```
 
@@ -87,25 +94,25 @@ For more sophisticated strategies, use the configuration hierarchy and override 
 class WeightedLoadBalancer extends LoadBalancer {
 	constructor(options = {}) {
 		super();
-		this.config = { 
-			defaultWeight: 1, 
+		this.config = {
+			defaultWeight: 1,
 			healthCheckInterval: 30000,
-			...options 
+			...options,
 		};
 		this.perTargetConfigKeys = ['weight', 'priority'];
 	}
 
 	async executeQuery({ targets, query }) {
 		// Get per-target weights using 3-level hierarchy
-		const weightedTargets = targets.map(target => ({
+		const weightedTargets = targets.map((target) => ({
 			target,
 			weight: this.getTargetConfig({
 				targetId: target.loadBalancerTargetId,
 				configKey: 'weight',
 				defaultValue: this.config.defaultWeight,
 				queryLevelOptions: query.opts?.loadBalancerOptions || {},
-				targetMetrics: this.targetMetrics
-			})
+				targetMetrics: this.targetMetrics,
+			}),
 		}));
 
 		// Implement weighted selection logic...
@@ -117,63 +124,80 @@ class WeightedLoadBalancer extends LoadBalancer {
 
 ## LoadBalancerManager
 
-The `LoadBalancerManager` handles strategy lifecycle, events, and provides enterprise features:
+The `LoadBalancerManager` handles strategy lifecycle, events, and provides enterprise features. It is instantiated automatically by the library and exported so you can update it at runtime.
+
+> NOTE:
+You can change any relevant "global" configuration props via the 2nd arg of `setCustomLoadBalancer`  and `setStrategy`. None of the built-in strategies support any global configuration options, but custom balancers likely will if you create your own.
+
+### Examples Manager Usage
 
 ```javascript
-const manager = new LoadBalancerManager('roundRobin', {
-	queryTimeoutMs: 30000,
-	enableFallback: true  // Auto-fallback to roundRobin on catastrophic failure
-});
+const { loadBalancerManager } = require('yass-orm');
 
 // Event monitoring
-manager.on('error', (data) => {
+loadBalancerManager.on('error', (data) => {
 	console.log(`Query failed: ${data.error.message}`);
 });
 
-manager.on('strategy-changed', (data) => {
+loadBalancerManager.on('strategy-changed', (data) => {
 	console.log(`Switched from ${data.oldStrategy} to ${data.newStrategy}`);
 });
 
 // Runtime strategy changes
-await manager.setStrategy('random');
+await loadBalancerManager.setStrategy('random', { /* config props */ });
 
-// Custom strategies
-await manager.setCustomLoadBalancer(MyCustomLoadBalancer, { customOption: 'value' });
+// Custom strategies (see more notes below under 'Enterprise Integration')
+await loadBalancerManager.setCustomLoadBalancer(MyCustomLoadBalancer, {
+	customOption: 'value',
+});
 
 // Health monitoring
 const health = await manager.healthCheck();
 const stats = await manager.getStats();
 ```
 
+
 ## Built-in Strategies
 
-### Round Robin
+### Round Robin (`roundRobin`)
+
 Cycles through targets sequentially. Provides perfectly even distribution and predictable behavior.
 
-### Random  
+```javascript
+const { loadBalancerManager } = require('yass-orm');
+await loadBalanceManager.setStrategy('roundRobin');
+```
+
+### Random (`random`)
+
 Randomly selects targets. Provides good distribution over time with simpler logic.
 
-## Configuration Options
+```javascript
+const { loadBalancerManager } = require('yass-orm');
+await loadBalanceManager.setStrategy('random');
+```
 
-Common configuration options supported across strategies:
+### Custom (`custom`)
 
-- **`queryTimeoutMs`** - Query timeout in milliseconds (default: 30000)
-- **`maxRetries`** - Maximum retry attempts (default: 3)
-- **`healthCheckIntervalMs`** - Health check frequency (default: 30000)
+Uses whatever previously-set custom strategy class you gave it. (See `Enterprise Integration` below.)
+
+```javascript
+const { loadBalancerManager } = require('yass-orm');
+await loadBalanceManager.setStrategy('custom');
+```
 
 ## Enterprise Integration
 
 For enterprise packages, you can inject custom load balancers globally:
 
 ```javascript
-
 // The `loadBalancerManager` is the instantiated load balance manager actively used internally
-const { LoadBalancer, loadBalancerManager } = require('yass-orm/lib/load-balancing');
+const { LoadBalancer, loadBalancerManager } = require('yass-orm');
 
 // Create your EnterpriseLoadBalancer class
 class EnterpriseLoadBalancer extends LoadBalancer {
 	// Do fancy stuff here...
-} 
+}
 
 // Pass the class itself to the library, the library will instantiate internally.
 // This automatically switches strategies internally to use your balancer here for the next query.
@@ -181,11 +205,10 @@ class EnterpriseLoadBalancer extends LoadBalancer {
 await loadBalancerManager.setCustomLoadBalancer(EnterpriseLoadBalancer);
 
 // You can always remove the custom balancer if needed later
-await loadBalancerManager.removeCustomLoadBalancer()
+await loadBalancerManager.removeCustomLoadBalancer();
 
 // ... or set a new strategy instead of removing
 await loadBalanceManager.setStrategy('roundRobin');
-
 ```
 
 ## Target Identity & Metrics
@@ -193,7 +216,7 @@ await loadBalanceManager.setStrategy('roundRobin');
 The system uses **target identity** (`loadBalancerTargetId`) rather than connection instances for tracking. This enables:
 
 - **Global state sharing** across the entire application
-- **Persistent metrics** that survive connection churn  
+- **Persistent metrics** that survive connection churn
 - **Dynamic target membership** per query
 - **Consistent routing decisions** across process restarts
 
@@ -202,8 +225,9 @@ Target identity format: `${database}:${host}:${port}`
 ## Testing
 
 Comprehensive test suites are available in the `test/` directory:
+
 - **LoadBalancer.test.js** - Base class functionality and configuration hierarchy
-- **RandomLoadBalancer.test.js** - Random selection and statistical distribution  
+- **RandomLoadBalancer.test.js** - Random selection and statistical distribution
 - **RoundRobinLoadBalancer.test.js** - Sequential cycling and state management
 - **LoadBalancerManager.test.js** - Strategy management and event system
 
