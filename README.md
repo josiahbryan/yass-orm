@@ -13,6 +13,8 @@ Why? Mainly for my personal use in a variety of projects.
     -  The architecture uses target-based routing with a 3-level configuration hierarchy (global → per-target → per-query) for maximum flexibility. 
     -  To set a custom strategy, use the `LoadBalancerManager` class or extend [the `LoadBalancer` base class](lib/load-balancing/LoadBalancer.js). 
     -  See [lib/load-balancing/README.md](lib/load-balancing/README.md) for comprehensive documentation and usage examples, and check [lib/load-balancing/LoadBalancer.js](lib/load-balancing/LoadBalancer.js) for extensive JSDoc documentation on the interface and implementation patterns.
+  -  (fix) Fixed an assumption in `DatabaseObject` method `withDbh` - previously, if you passed a string as the first arg, it would only execute that as SQL if you ALSO passed a truthy value for the 2nd arg - which for some queries didn't make sense, since not all queries require props. It has been adjusted now so that if the first prop is a string. it will execute the query regardless. (The usual function-style callback as the first arg is still supported, that was not changed.)
+  -  (feat) Added pass-thru of any other options passed to the `handle` method internally. This allows requesting a database handle at runtime with different server props/schema props than what is configured.
 
 - 2025-04-12
   - (feat) Added caching of the model classes loaded by _resolvedLinkedModel(), which is called internally when you define a related field using `t.linked('model-class-name')`. This reduces the disk hits considerably, which can significantly increase performance under heavy production loads.
