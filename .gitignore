@@ -1,3 +1,6 @@
+# Disabled
+*.disabled.*
+
 # Logs
 bak
 logs

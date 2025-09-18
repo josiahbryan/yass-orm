@@ -7,6 +7,17 @@ Why? Mainly for my personal use in a variety of projects.
 ## Recent changes
 
 ---
+- 2025-09-17
+  - (feat) **Enhanced event loop responsiveness** - Replaced `Promise.all` with `promisePoolMap` in database operations to prevent event loop blocking during large result set processing.
+    - **`inflateValues` method**: Core object inflation now uses `promisePoolMap` instead of `Promise.all` when processing field transformations (dates, JSON, linked models, etc.), affecting ALL database loading operations
+    - **`fromSql` method**: Now uses `promisePoolMap` when inflating database rows, yielding control to the event loop every N items (configurable via `yieldEvery`, default: 10)
+    - **`search` method**: Similarly enhanced to yield during result processing, preventing UI freezes and allowing other async operations to proceed
+    - **`.get()` method**: Benefits from `inflateValues` improvements, so even single record loading is more responsive
+    - **`finder.js`**: Updated search result processing to use `promisePoolMap` for better responsiveness during large search operations
+    - **Configurable yielding**: All methods accept `promisePoolMapConfig` parameter to customize concurrency and yield frequency based on your application's needs
+    - **Backward compatible**: No breaking changes - existing code continues to work with improved performance characteristics
+    - This prevents the notorious "blocking the event loop" issue when processing hundreds or thousands of database records, keeping your application responsive
+
 - 2025-06-22
   - (feat) Added comprehensive load balancing system for database read operations in [lib/load-balancing/](lib/load-balancing/) folder.
     -  The system supports multiple strategies including Round Robin (default) and Random selection, plus the ability to add custom load balancers. 
