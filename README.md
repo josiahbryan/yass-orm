@@ -7,6 +7,14 @@ Why? Mainly for my personal use in a variety of projects.
 ## Recent changes
 
 ---
+- 2025-09-18
+  - (feat) **Exposed `updatePromiseMapDefaultConfig` function** - Added ability to customize global `promisePoolMap` defaults for your application.
+    - **New export**: `updatePromiseMapDefaultConfig(newDefaults)` allows changing default concurrency, yieldEvery, and other settings globally
+    - **Updated defaults**: Changed default `concurrency` from 5 to 4 and `yieldEvery` from 10 to 8 for better balance of performance and responsiveness
+    - **Usage example**: `const { updatePromiseMapDefaultConfig } = require('yass-orm'); updatePromiseMapDefaultConfig({ concurrency: 2, yieldEvery: 5 });`
+    - **Affects all operations**: Changes apply to `inflateValues`, `fromSql`, `search`, and all other database operations using `promisePoolMap`
+    - **Per-operation override**: Individual operations can still override defaults by passing `promisePoolMapConfig` parameter
+
 - 2025-09-17
   - (feat) **Enhanced event loop responsiveness** - Replaced `Promise.all` with `promisePoolMap` in database operations to prevent event loop blocking during large result set processing.
     - **`inflateValues` method**: Core object inflation now uses `promisePoolMap` instead of `Promise.all` when processing field transformations (dates, JSON, linked models, etc.), affecting ALL database loading operations
