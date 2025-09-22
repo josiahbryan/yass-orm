@@ -21,6 +21,9 @@ Why? Mainly for my personal use in a variety of projects.
       - `{ includeLinked: true }` includes linked models (recursively, respecting each model’s `jsonify`)
       - Lightweight promise guard prevents re‑entrancy/race conditions
     - Minor allocation reductions across `inflateValues`/`deflateValues`/update flows
+    - Global `PATH_CACHE` for linked model resolution:
+      - Caches resolved file paths to avoid repeated `path.resolve()` calls
+      - Speeds up linked model loading when same models are referenced multiple times
     - Overall impact: fewer micro‑allocations, less schema re‑work, better steady‑state throughput
 
 - 2025-09-18
