@@ -7,6 +7,22 @@ Why? Mainly for my personal use in a variety of projects.
 ## Recent changes
 
 ---
+- 2025-09-21
+  - (perf) Core under‑the‑hood optimizations for faster hot paths with no API changes required
+    - Cached schema metadata per class to cut repeated work:
+      - `fields()` now memoizes to `Class._cachedFields`
+      - `idField()` now memoizes to `Class._cachedIdField`
+      - Instances reuse the cached fields during construction and updates
+    - Replaced several `.forEach`/temporary allocations with tight `for` loops and early exits in hot code paths
+    - Reduced repeated calls to `schema()`/`Object.values()` and avoided unnecessary key enumeration where possible
+    - Stabilized and streamlined `jsonify` internals:
+      - Backward‑compatible behavior preserved (defaults to `{ id, name }`)
+      - `{ excludeLinked: true }` includes regular (non‑linked) fields only
+      - `{ includeLinked: true }` includes linked models (recursively, respecting each model’s `jsonify`)
+      - Lightweight promise guard prevents re‑entrancy/race conditions
+    - Minor allocation reductions across `inflateValues`/`deflateValues`/update flows
+    - Overall impact: fewer micro‑allocations, less schema re‑work, better steady‑state throughput
+
 - 2025-09-18
   - (feat) **Exposed `updatePromiseMapDefaultConfig` function** - Added ability to customize global `promisePoolMap` defaults for your application.
     - **New export**: `updatePromiseMapDefaultConfig(newDefaults)` allows changing default concurrency, yieldEvery, and other settings globally
