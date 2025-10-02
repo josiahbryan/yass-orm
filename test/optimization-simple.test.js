@@ -25,8 +25,8 @@ describe('#YASS-ORM Core Optimizations', () => {
 			const fields2 = TestClass.fields();
 			expect(fields2).to.equal(fields1); // Same reference = cached
 
-			// Verify cache property exists
-			expect(TestClass._cachedFields).to.equal(fields1);
+			// Note: Cache is now stored in private symbols, so we can't directly access it
+			// but we can verify caching behavior by checking reference equality above
 		});
 
 		it('should cache idField() results across calls', () => {
@@ -39,8 +39,8 @@ describe('#YASS-ORM Core Optimizations', () => {
 			const idField2 = TestClass.idField();
 			expect(idField2).to.equal(idField1);
 
-			// Verify cache property exists
-			expect(TestClass._cachedIdField).to.equal(idField1);
+			// Note: Cache is now stored in private symbols, so we can't directly access it
+			// but we can verify caching behavior by checking value equality above
 		});
 	});
 

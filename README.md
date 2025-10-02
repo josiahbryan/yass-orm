@@ -7,11 +7,20 @@ Why? Mainly for my personal use in a variety of projects.
 ## Recent changes
 
 ---
+- 2025-10-02
+  - (feat) **Database Connection Pool Implementation** - Replaced `createConnection` with `createPool` for improved connection lifecycle management
+    - Added connection pooling with `connectionLimit: 10` for both primary and read-only connections
+    - Added `idleTimeout: 600` (10 minutes) to automatically close idle connections and prevent "socket has unexpectedly been closed" errors
+    - Eliminated manual `USE database` statements as pools automatically handle database selection
+    - Applied pooling to both primary write connections and read-only replica connections
+    - Improved connection reliability and resource management for high-traffic applications
+
+---
 - 2025-09-21
   - (perf) Core under‑the‑hood optimizations for faster hot paths with no API changes required
     - Cached schema metadata per class to cut repeated work:
-      - `fields()` now memoizes to `Class._cachedFields`
-      - `idField()` now memoizes to `Class._cachedIdField`
+      - `fields()` now memoizes results using private symbols
+      - `idField()` now memoizes results using private symbols
       - Instances reuse the cached fields during construction and updates
     - Replaced several `.forEach`/temporary allocations with tight `for` loops and early exits in hot code paths
     - Reduced repeated calls to `schema()`/`Object.values()` and avoided unnecessary key enumeration where possible
