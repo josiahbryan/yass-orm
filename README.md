@@ -7,6 +7,14 @@ Why? Mainly for my personal use in a variety of projects.
 ## Recent changes
 
 ---
+- 2025-10-06
+  - (fix) **Silenced Timezone Warnings** - Added `skipSetTimezone: true` option to MariaDB connection pool configurations
+    - Eliminates repetitive "setting timezone 'Etc/GMT+0' fails on server" warnings from the MariaDB connector
+    - Applied to both primary and read-only connection pools
+    - Timezone handling still functions correctly on the client side, just without server-side timezone setting attempts
+    - No functional changes to how dates/times are handled - all processing remains UTC-based as before
+
+---
 - 2025-10-02
   - (feat) **Database Connection Pool Implementation** - Replaced `createConnection` with `createPool` for improved connection lifecycle management
     - Added connection pooling with `connectionLimit: 10` for both primary and read-only connections
