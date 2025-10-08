@@ -5,6 +5,9 @@ process.env.NODE_ENV = 'development';
 module.exports = {
 	development: {
 		password: 'testsys1',
+		// Connection pool limit - default is 10, can be increased for high-concurrency applications
+		// Increase this if you see "retrieve connection from pool timeout" errors
+		// connectionLimit: 20,
 	},
 
 	// Applies to all envs above

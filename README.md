@@ -7,7 +7,21 @@ Why? Mainly for my personal use in a variety of projects.
 ## Recent changes
 
 ---
+- 2025-10-08
+  - (chore) **Security Updates** - Ran npm audit and fixed vulnerabilities
+    - Fixed all critical and high severity vulnerabilities (reduced from 12 to 3 vulnerabilities)
+    - Upgraded `nodemon` from `^2.0.15` to `^3.1.10` to fix semver ReDoS vulnerabilities
+    - Remaining 3 moderate severity vulnerabilities are in dev dependency `mocha` and require breaking changes to fix
+    - All production dependencies are now secure
+
+---
 - 2025-10-06
+  - (feat) **Configurable Connection Pool Limit** - Added `connectionLimit` configuration option for connection pools
+    - New config option: `connectionLimit` (default: 10) - allows increasing pool size for high-concurrency applications
+    - Applied to both primary and read-only connection pools
+    - Helps prevent "retrieve connection from pool timeout" errors in applications with high concurrency or long-running queries
+    - Especially useful for applications processing large objects that hold connections for extended periods
+    - Configure in your `.yass-orm.js` config file under development/staging/production sections
   - (fix) **Silenced Timezone Warnings** - Added `skipSetTimezone: true` option to MariaDB connection pool configurations
     - Eliminates repetitive "setting timezone 'Etc/GMT+0' fails on server" warnings from the MariaDB connector
     - Applied to both primary and read-only connection pools
