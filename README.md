@@ -7,6 +7,25 @@ Why? Mainly for my personal use in a variety of projects.
 ## Recent changes
 
 ---
+- 2025-11-29
+  - (feat) **Graceful Shutdown Support** - Added `closeAllConnections()` function for properly closing all cached database connection pools
+    - New export: `closeAllConnections()` - Closes all cached connection pools and clears the cache
+    - Returns `{ closed, failed }` object indicating how many pools were successfully closed
+    - Prevents connection exhaustion when running CLI scripts that don't properly exit
+    - Essential for graceful shutdown in scripts and serverless functions
+    - Usage example:
+      ```javascript
+      const { closeAllConnections } = require('yass-orm');
+      
+      // In your shutdown handler:
+      process.on('SIGTERM', async () => {
+        await closeAllConnections();
+        process.exit(0);
+      });
+      ```
+    - Also available via `dbhUtils.closeAllConnections()` for existing codebases using that import style
+
+---
 - 2025-10-08
   - (chore) **Security Updates** - Ran npm audit and fixed vulnerabilities
     - Fixed all critical and high severity vulnerabilities (reduced from 12 to 3 vulnerabilities)
