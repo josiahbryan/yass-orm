@@ -7,6 +7,17 @@ Why? Mainly for my personal use in a variety of projects.
 ## Recent changes
 
 ---
+- 2025-12-05
+  - (feat) **ESM Compatibility** - Added support for consuming yass-orm from ES modules
+    - yass-orm can now be imported using ESM syntax: `import YassORM from 'yass-orm'`
+    - Model files can use ESM-style exports (`module.exports = { default: Model }`) and will be correctly unwrapped
+    - `loadDefinition()` now handles `file://` URLs from `parentModule()` when called from ESM contexts
+    - Added `fileUrlToPath` helper to convert file URLs to filesystem paths
+    - Dynamic `import()` used in `_resolveModelClass` for loading linked model files, ensuring ESM module cache is used for correct `instanceof` checks
+    - Global caches (`__YASS_ORM_OBJECT_CACHE__`, `__YASS_ORM_MODEL_CLASS_CACHE__`, etc.) now use `globalThis` to survive ESM module duplication when the same module is loaded via symlink and real path
+    - Added comprehensive ESM compatibility test suite (`test/esm-compatibility.test.mjs`)
+
+---
 - 2025-11-29
   - (feat) **Graceful Shutdown Support** - Added `closeAllConnections()` function for properly closing all cached database connection pools
     - New export: `closeAllConnections()` - Closes all cached connection pools and clears the cache

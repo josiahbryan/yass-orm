@@ -1,6 +1,10 @@
 module.exports = {
 	extends: ['danbriggs5-base', 'plugin:prettier/recommended'],
 	parser: 'babel-eslint',
+	env: {
+		es2020: true,
+		node: true,
+	},
 	rules: {
 		// https://github.com/eslint/eslint/issues/5074
 		'prefer-const': 'off',
