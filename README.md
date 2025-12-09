@@ -7,6 +7,14 @@ Why? Mainly for my personal use in a variety of projects.
 ## Recent changes
 
 ---
+- 2025-12-09
+  - (fix) **Invalid Date Guard in `deflateValue`** - Added protection against invalid Date objects that would throw `RangeError: Invalid time value` when calling `toISOString()`
+    - Before calling `toISOString()`, we now check if the Date is valid using `Number.isNaN(date.getTime())`
+    - Invalid dates are converted to `null` instead of crashing the query
+    - Also wrapped `toISOString()` in try-catch for custom objects with broken implementations
+    - This prevents circuit breaker trips in load balancers caused by application bugs being mistaken for database errors
+
+---
 - 2025-12-05
   - (feat) **ESM Compatibility** - Added support for consuming yass-orm from ES modules
     - yass-orm can now be imported using ESM syntax: `import YassORM from 'yass-orm'`
