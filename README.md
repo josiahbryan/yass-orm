@@ -13,6 +13,12 @@ Why? Mainly for my personal use in a variety of projects.
     - Invalid dates are converted to `null` instead of crashing the query
     - Also wrapped `toISOString()` in try-catch for custom objects with broken implementations
     - This prevents circuit breaker trips in load balancers caused by application bugs being mistaken for database errors
+  - (fix) **Safe JSON Handling** - Replaced all direct `JSON.parse()`/`JSON.stringify()` calls with safe wrappers to prevent crashes
+    - Added `lib/jsonSafeStringify.js` - Handles circular references gracefully using `JSON.decycle` polyfill, never throws
+    - Added `lib/jsonSafeParse.js` - Returns `undefined` on parse failure instead of throwing
+    - Updated `dbh.js`, `obj.js`, `finder.js`, `config.js`, `sync-to-db.js`, and `LoadBalancer.js` to use safe wrappers
+    - Prevents crashes from circular references or malformed JSON in database operations and error logging
+    - All 155 tests pass with the new implementation
 
 ---
 - 2025-12-05
