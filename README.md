@@ -7,6 +7,15 @@ Why? Mainly for my personal use in a variety of projects.
 ## Recent changes
 
 ---
+- 2025-12-14
+  - (chore) **TypeScript typings + tooling hardening**
+    - Added full `index.d.ts` surface for `DatabaseObject`, including `withDbh` overloads and typed helper exports.
+    - Added `tsd` type tests (`npm run test:types`) and wired them into `test`/precommit.
+    - Added `tsconfig` path mapping for self-imports and a `test-d/tsconfig.json` for editor/TS server correctness.
+    - Improved ESLint config for TypeScript/overloads and added TS import resolver.
+    - Typecheck-only configs (`noEmit`) to keep `allowImportingTsExtensions` valid.
+
+---
 - 2025-12-09
   - (fix) **Invalid Date Guard in `deflateValue`** - Added protection against invalid Date objects that would throw `RangeError: Invalid time value` when calling `toISOString()`
     - Before calling `toISOString()`, we now check if the Date is valid using `Number.isNaN(date.getTime())`
