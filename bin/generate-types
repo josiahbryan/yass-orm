@@ -1,0 +1,129 @@
+#!/usr/bin/env node
+/* eslint-disable no-restricted-syntax */
+
+/**
+ * CLI utility to generate TypeScript types from yass-orm model definitions.
+ *
+ * Usage:
+ *   generate-types [options] <definition-files...>
+ *
+ * Options:
+ *   --dry-run    Show what would be generated without writing files
+ *   --verbose    Show generated content in dry-run mode
+ *   --help       Show this help message
+ *
+ * Examples:
+ *   # Generate types for a single model
+ *   generate-types path/to/models/defs/my-model.js
+ *
+ *   # Generate types for multiple models
+ *   generate-types path/to/defs/*.js
+ *
+ *   # Dry run to preview output
+ *   generate-types --dry-run --verbose path/to/defs/my-model.js
+ */
+
+/* eslint-disable no-console */
+const { generateTypesForFiles } = require('../lib/generate-types');
+
+function showHelp() {
+	console.log(`
+Usage: generate-types [options] <definition-files...>
+
+Generate TypeScript type definitions from yass-orm model definitions.
+
+Options:
+  --dry-run    Show what would be generated without writing files
+  --verbose    Show generated content in dry-run mode
+  --help       Show this help message
+
+Examples:
+  # Generate types for a single model
+  generate-types path/to/models/defs/my-model.js
+
+  # Generate types for multiple models  
+  generate-types path/to/defs/*.js
+
+  # Dry run to preview output
+  generate-types --dry-run --verbose path/to/defs/my-model.js
+
+Output:
+  For each input file (e.g., my-model.js), a co-located .d.ts file
+  is generated (e.g., my-model.d.ts) with:
+  - Interface for instance properties
+  - Type for static model methods
+  - Default export type
+`);
+}
+
+async function main() {
+	const args = process.argv.slice(2);
+
+	// Parse options
+	const options = {
+		dryRun: false,
+		verbose: false,
+	};
+
+	const files = [];
+
+	for (const arg of args) {
+		if (arg === '--help' || arg === '-h') {
+			showHelp();
+			process.exit(0);
+		} else if (arg === '--dry-run') {
+			options.dryRun = true;
+		} else if (arg === '--verbose') {
+			options.verbose = true;
+		} else if (arg.startsWith('-')) {
+			console.error(`Unknown option: ${arg}`);
+			showHelp();
+			process.exit(1);
+		} else {
+			files.push(arg);
+		}
+	}
+
+	if (files.length === 0) {
+		console.error('Error: No definition files specified.');
+		showHelp();
+		process.exit(1);
+	}
+
+	// Filter to only .js files and skip helper files
+	const validFiles = files.filter((file) => {
+		if (!file.endsWith('.js')) {
+			console.warn(`Skipping non-JS file: ${file}`);
+			return false;
+		}
+		if (file.includes('relativeModelLinkHelper')) {
+			console.warn(`Skipping helper file: ${file}`);
+			return false;
+		}
+		if (file.includes('/common/')) {
+			console.warn(`Skipping common partial: ${file}`);
+			return false;
+		}
+		return true;
+	});
+
+	if (validFiles.length === 0) {
+		console.error('Error: No valid definition files to process.');
+		process.exit(1);
+	}
+
+	console.log(`Processing ${validFiles.length} definition file(s)...`);
+
+	try {
+		const results = await generateTypesForFiles(validFiles, options);
+		console.log(`\nSuccessfully generated ${results.length} type file(s).`);
+	} catch (error) {
+		console.error('Type generation failed:', error);
+		process.exit(1);
+	}
+}
+
+main().catch((error) => {
+	console.error('Unexpected error:', error);
+	process.exit(1);
+});
