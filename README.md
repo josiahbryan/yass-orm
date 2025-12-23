@@ -7,6 +7,23 @@ Why? Mainly for my personal use in a variety of projects.
 ## Recent changes
 
 ---
+- 2025-12-23
+  - (fix) **TypeScript Model File Support** - Added support for `.ts` model files in linked model resolution
+    - `_resolveModelClass` now checks for `.js`, `.ts`, `.cjs`, and `.mjs` extensions in order of preference
+    - Enables converting model files from JavaScript to TypeScript without breaking linked model relationships
+    - Configurable via `MODEL_EXTENSIONS` static property on `DatabaseObject`
+
+---
+- 2025-12-18
+  - (feat) **TypeScript Type Generation** - Added automatic `.d.ts` generation from model definitions
+    - New CLI tool: `bin/generate-types` - generates TypeScript declaration files from yass-orm model definitions
+    - Supports all field types including enums (generates union types), linked models, objects, and common fields
+    - Smart output placement: generates `.d.ts` next to `.ts` model files, or in `defs/` folder for `.js` models
+    - Generated types include both instance interfaces (schema fields) and static model types (ORM methods)
+    - Includes `withDbh` overloads for both SQL string and callback patterns
+    - Usage: `npx yass-orm-generate-types path/to/defs/*.js` or integrate with your build process
+
+---
 - 2025-12-14
   - (chore) **TypeScript typings + tooling hardening**
     - Added full `index.d.ts` surface for `DatabaseObject`, including `withDbh` overloads and typed helper exports.
