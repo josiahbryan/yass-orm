@@ -8,6 +8,14 @@ Why? Mainly for my personal use in a variety of projects.
 
 ---
 - 2025-12-23
+  - (feat) **Enum Type Support** - Added native `t.enum()` type to schema definitions
+    - Usage: `t.enum(['option1', 'option2'], { default: 'option1' })`
+    - Stored as varchar in database, generates TypeScript union types
+    - Supports `options` array for validation and type generation
+  - (feat) **Improved Array Type Generation** - Array fields now generate proper TypeScript array types
+    - `t.array()` fields now generate `string[]`, `number[]`, `boolean[]`, or `any[]` instead of `Record<string, unknown>`
+    - Type generator detects item types when using `t.array(t.string)`, `t.array(t.int)`, etc.
+    - Backwards compatible - runtime behavior unchanged, only type generation improved
   - (fix) **TypeScript Model File Support** - Added support for `.ts` model files in linked model resolution
     - `_resolveModelClass` now checks for `.js`, `.ts`, `.cjs`, and `.mjs` extensions in order of preference
     - Enables converting model files from JavaScript to TypeScript without breaking linked model relationships
