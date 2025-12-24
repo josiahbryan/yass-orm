@@ -7,6 +7,14 @@ Why? Mainly for my personal use in a variety of projects.
 ## Recent changes
 
 ---
+- 2025-12-24
+  - (feat) **Generic Type Parameters for DbHandle Query Methods** - Added TypeScript generics to `query`, `pquery`, and `roQuery` methods
+    - All three methods now accept an optional type parameter for type-safe query results
+    - Example: `dbh.roQuery<{ count: number }>('SELECT COUNT(*) as count FROM users')`
+    - Backwards compatible - defaults to `any` if no type parameter provided
+    - Eliminates need for local `DbHandle` interface definitions in consuming code
+
+---
 - 2025-12-23
   - (feat) **Enum Type Support** - Added native `t.enum()` type to schema definitions
     - Usage: `t.enum(['option1', 'option2'], { default: 'option1' })`

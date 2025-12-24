@@ -75,15 +75,26 @@ export type FinderResult<Row = AnyRecord> = {
 /**
  * DB handle (connection/pool) returned by `dbh()` and passed into retry/withDbh callbacks.
  * This is intentionally minimal and loosely typed.
+ *
+ * Generic type parameters on query methods allow type-safe results:
+ * @example
+ * ```typescript
+ * const rows = await dbh.roQuery<{ count: number }>('SELECT COUNT(*) as count FROM users');
+ * console.log(rows[0].count); // typed as number
+ * ```
  */
 export type DbHandle = {
-	pquery: (sql: string, params?: any, opts?: any) => Promise<any>;
-	roQuery: (
+	/** Raw MySQL query method - use pquery for parameterized queries */
+	query: <T = any>(sql: string, params?: any) => Promise<T>;
+	/** Parameterized query - automatically escapes params */
+	pquery: <T = any>(sql: string, params?: any, opts?: any) => Promise<T>;
+	/** Read-only query - routes to read replicas if configured */
+	roQuery: <T = any>(
 		sql: string,
 		params?: any,
 		opts?: any,
 		...args: any[]
-	) => Promise<any>;
+	) => Promise<T[]>;
 	search: (
 		tableAndIdField: string,
 		fields?: AnyRecord,
