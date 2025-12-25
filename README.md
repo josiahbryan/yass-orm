@@ -8,6 +8,20 @@ Why? Mainly for my personal use in a variety of projects.
 
 ---
 - 2025-12-24
+  - (feat) **Generic Instance Type Parameter for DatabaseObjectStatic** - Added second generic parameter `TInstance` to `DatabaseObjectStatic` interface
+    - Allows frameworks to specify custom instance return types for all static methods
+    - Default: `DatabaseObjectInstance<TSchema>` for backwards compatibility
+    - Enables extending without re-declaring all methods - just specify your instance type:
+      ```typescript
+      interface MyModelStatic<T> extends DatabaseObjectStatic<T, MyInstanceType<T>> {
+        // Only add your custom methods here
+      }
+      ```
+    - All static methods (`search`, `get`, `create`, etc.) now use `TInstance` for return types
+  - (feat) **New Exported Types** - Added clean separation of instance and static interfaces
+    - `DatabaseObjectInstanceMethods` - Base instance methods (patch, remove, jsonify, etc.)
+    - `DatabaseObjectInstance<TSchema>` - Schema fields + base instance methods
+    - `DatabaseObjectStatic<TSchema, TInstance>` - Full static interface with configurable instance type
   - (feat) **Smart Output Path for Type Generation** - Improved `.d.ts` output location logic to handle multiple directory patterns
     - **Standard pattern (`models/defs/`)**: Output goes to parent `models/` folder for JS models, stays in `defs/` for TS models
     - **Sibling pattern (`db/defs/` alongside `db/models/`)**: Output goes to sibling `models/` folder for JS models

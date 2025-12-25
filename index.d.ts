@@ -132,6 +132,255 @@ export type DbHandle = {
 	[key: string]: any;
 };
 
+// ============================================================================
+// INSTANCE INTERFACE - Base instance methods available on all DatabaseObject instances
+// ============================================================================
+
+/**
+ * Instance methods available on all DatabaseObject instances.
+ * Use DatabaseObjectInstance<TSchema> to get schema-typed instances.
+ */
+export interface DatabaseObjectInstanceMethods {
+	/** Unique identifier */
+	id: any;
+
+	/** Optional name field (common pattern) */
+	name?: any;
+
+	/** Soft-delete flag */
+	isDeleted?: boolean;
+
+	/** Creation timestamp */
+	createdAt?: Date;
+
+	/** Last update timestamp */
+	updatedAt?: Date;
+
+	/** Optimistic concurrency control token */
+	nonce?: string;
+
+	/**
+	 * Async JSONification.
+	 * NOTE: This is NOT `toJSON()`.
+	 */
+	jsonify(opts?: JsonifyOptions): Promise<AnyRecord>;
+
+	/**
+	 * Patch fields in DB and refresh this instance.
+	 */
+	patch(data?: AnyRecord): Promise<this>;
+
+	/**
+	 * Patch with nonce retry behavior (ERR_NONCE retry loop).
+	 */
+	patchWithNonceRetry(
+		patch: AnyRecord,
+		opts?: PatchWithNonceRetryOptions,
+	): Promise<any>;
+
+	/**
+	 * Sets isDeleted=true (requires schema to have isDeleted field).
+	 */
+	remove(): Promise<this>;
+
+	/**
+	 * Actually DELETEs from DB (dangerous).
+	 */
+	reallyDelete(): Promise<any>;
+
+	/**
+	 * Deflates this instance (or passed object) into DB-ready primitives.
+	 */
+	deflate(data?: AnyRecord, noUndefined?: boolean): AnyRecord;
+
+	getId(): any;
+
+	idField(): string;
+
+	debugSql(sql: string, args: AnyRecord): string;
+
+	/** Underlying db handle (async). */
+	dbh(): Promise<DbHandle>;
+
+	retryIfConnectionLost<T>(fn: (dbh: DbHandle) => Promise<T>): Promise<T>;
+
+	mutateQuery(query: AnyRecord, sqlData: any, ctx: any): Promise<void>;
+
+	mutateSort(sort: any[], sqlData: any, ctx: any): Promise<any[]>;
+
+	mutateResult(result: any[], query: AnyRecord, ctx: any): Promise<any[]>;
+
+	mutateMeta(meta: any, sqlData: any, ctx: any): Promise<any>;
+
+	afterCreateHook(...args: any[]): Promise<any>;
+
+	afterChangeHook(...args: any[]): Promise<any>;
+}
+
+/**
+ * Schema-typed instance. Combines your schema fields with base instance methods.
+ */
+export type DatabaseObjectInstance<TSchema = AnyRecord> = TSchema &
+	DatabaseObjectInstanceMethods;
+
+// ============================================================================
+// STATIC INTERFACE - Static methods available on all DatabaseObject classes
+// ============================================================================
+
+/**
+ * Static methods available on DatabaseObject classes.
+ *
+ * @typeParam TSchema - The schema fields interface (e.g., PallasSessionInstance)
+ * @typeParam TInstance - The full instance type returned by static methods.
+ *   Defaults to DatabaseObjectInstance<TSchema>. Frameworks can override this
+ *   to add additional instance methods (e.g., Rubber's BaseInstanceMethods).
+ *
+ * @example
+ * ```typescript
+ * import type { DatabaseObjectStatic } from 'yass-orm';
+ *
+ * function doSomething<T>(Model: DatabaseObjectStatic<T>) {
+ *   return Model.searchOne({ isDeleted: false });
+ * }
+ * ```
+ *
+ * @example Extending with custom instance type
+ * ```typescript
+ * interface MyInstanceMethods { customMethod(): void; }
+ * type MyInstance<T> = DatabaseObjectInstance<T> & MyInstanceMethods;
+ *
+ * interface MyModelStatic<T> extends DatabaseObjectStatic<T, MyInstance<T>> {
+ *   // Add custom static methods here
+ * }
+ * ```
+ */
+export interface DatabaseObjectStatic<
+	TSchema = AnyRecord,
+	TInstance = DatabaseObjectInstance<TSchema>,
+> {
+	/** Constructor - creates a new instance */
+	new (): TInstance;
+
+	/** Get the schema definition */
+	schema(): SchemaDefinition;
+
+	/** Feathers-like search packet; returns raw rows (not instances). */
+	find(
+		query: AnyRecord,
+		opts?: { promisePoolMapConfig?: PromisePoolMapConfig; [key: string]: any },
+	): Promise<FinderResult<AnyRecord>>;
+
+	allowedFindParams(): string[] | null;
+
+	/** Get the database table name */
+	table(): string;
+
+	/** Get field definitions */
+	fields(): SchemaField[];
+
+	idField(): string;
+
+	debugSql(sql: string, args: AnyRecord): string;
+
+	dbh(): Promise<DbHandle>;
+
+	retryIfConnectionLost<T>(fn: (dbh: DbHandle) => Promise<T>): Promise<T>;
+
+	/**
+	 * Access raw db handle.
+	 * Overloads:
+	 * - withDbh((dbh, table) => ...) -> runs callback under retryIfConnectionLost
+	 * - withDbh('UPDATE ...', { ... }) -> runs dbh.pquery(sql, props)
+	 */
+	withDbh<T>(
+		fn: (dbh: DbHandle, tableName: string) => Promise<T> | T,
+	): Promise<T>;
+	withDbh(sql: string, props?: AnyRecord): Promise<any>;
+
+	/** Execute raw SQL and return typed instances */
+	fromSql(
+		whereClause?: string,
+		args?: AnyRecord & { promisePoolMapConfig?: PromisePoolMapConfig },
+	): Promise<Array<TInstance>>;
+
+	/** Search for multiple records matching query */
+	search(
+		fields?: AnyRecord,
+		limitOne?: false,
+		promisePoolMapConfig?: PromisePoolMapConfig,
+	): Promise<Array<TInstance>>;
+
+	search(
+		fields: AnyRecord,
+		limitOne: true,
+		promisePoolMapConfig?: PromisePoolMapConfig,
+	): Promise<TInstance | null>;
+
+	/** Search for a single record matching query */
+	searchOne(
+		fields?: AnyRecord,
+		promisePoolMapConfig?: PromisePoolMapConfig,
+	): Promise<TInstance | null>;
+
+	/** Get a record by ID */
+	get(id: any, opts?: FindOptions): Promise<TInstance | null>;
+
+	/** Create a new record */
+	create(data: Partial<TSchema>): Promise<TInstance>;
+
+	/** Find existing record or create new one */
+	findOrCreate(
+		fields: Partial<TSchema>,
+		patchIf?: Partial<TSchema>,
+		patchIfFalsey?: Partial<TSchema>,
+		...extraArgs: any[]
+	): Promise<TInstance>;
+
+	/** Inflate raw data to typed instance */
+	inflate(
+		data: AnyRecord,
+		span?: any,
+		promisePoolMapConfig?: PromisePoolMapConfig,
+	): Promise<TInstance | null>;
+
+	inflateValues(
+		data: AnyRecord,
+		span?: any,
+		promisePoolMapConfig?: PromisePoolMapConfig,
+	): Promise<AnyRecord>;
+
+	deflateValues(object?: AnyRecord, noUndefined?: boolean): AnyRecord;
+
+	/** Get cached instance by ID */
+	getCachedId(id: any, ...args: any[]): Promise<TInstance | undefined>;
+
+	/** Cache an instance */
+	setCachedId(
+		id: any,
+		freshData: TInstance,
+		...args: any[]
+	): Promise<TInstance>;
+
+	/** Remove an instance from cache */
+	removeCachedId(id: any): boolean;
+
+	/** Clear entire cache for this model */
+	clearCache(): void;
+
+	/** Generate a new object ID */
+	generateObjectId(): string;
+}
+
+// ============================================================================
+// DATABASE OBJECT CLASS - Runtime class (kept for backwards compatibility)
+// ============================================================================
+
+/**
+ * Base class for all database models.
+ *
+ * For typed models, use DatabaseObjectStatic<TSchema> interface instead of
+ * extending this class directly, or use createBaseClass from your framework.
+ */
 export declare class DatabaseObject {
 	// Common instance props (schema-dependent, so keep loose)
 	id: any;
@@ -319,6 +568,10 @@ export declare class DatabaseObject {
 
 	static generateObjectId(): string;
 }
+
+// ============================================================================
+// UTILITY FUNCTIONS AND EXPORTS
+// ============================================================================
 
 export declare function convertDefinition(definition: any): SchemaDefinition;
 
