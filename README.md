@@ -8,6 +8,19 @@ Why? Mainly for my personal use in a variety of projects.
 
 ---
 - 2025-12-24
+  - (feat) **Smart Output Path for Type Generation** - Improved `.d.ts` output location logic to handle multiple directory patterns
+    - **Standard pattern (`models/defs/`)**: Output goes to parent `models/` folder for JS models, stays in `defs/` for TS models
+    - **Sibling pattern (`db/defs/` alongside `db/models/`)**: Output goes to sibling `models/` folder for JS models
+    - TypeScript models always have types generated in `defs/` to avoid `.ts`/`.d.ts` conflicts
+    - JavaScript models have types generated next to the model file for TypeScript auto-discovery
+  - (feat) **Automatic Cleanup of Old Type Files** - Generator now removes `.d.ts` files in alternate locations
+    - When generating to `models/`, removes stale files in `defs/` and vice versa
+    - Prevents duplicate type definitions that could cause TypeScript confusion
+    - Cleanup respects `--dry-run` flag for safe previewing
+  - (feat) **Custom Header Comment Injection** - New `--header-comment` CLI option for adding regeneration instructions
+    - Usage: `generate-types --header-comment "To regenerate: npm run generate-model-types" path/to/defs/*.js`
+    - Comments appear in the generated `.d.ts` file header
+    - Helps future engineers understand how to regenerate types
   - (feat) **Generic Type Parameters for DbHandle Query Methods** - Added TypeScript generics to `query`, `pquery`, and `roQuery` methods
     - All three methods now accept an optional type parameter for type-safe query results
     - Example: `dbh.roQuery<{ count: number }>('SELECT COUNT(*) as count FROM users')`

@@ -8,9 +8,10 @@
  *   generate-types [options] <definition-files...>
  *
  * Options:
- *   --dry-run    Show what would be generated without writing files
- *   --verbose    Show generated content in dry-run mode
- *   --help       Show this help message
+ *   --dry-run              Show what would be generated without writing files
+ *   --verbose              Show generated content in dry-run mode
+ *   --header-comment "..." Custom comment to add to the header of generated files
+ *   --help                 Show this help message
  *
  * Examples:
  *   # Generate types for a single model
@@ -21,6 +22,9 @@
  *
  *   # Dry run to preview output
  *   generate-types --dry-run --verbose path/to/defs/my-model.js
+ *
+ *   # Add custom header comment
+ *   generate-types --header-comment "To regenerate: npm run generate-model-types" path/to/defs/*.js
  */
 
 /* eslint-disable no-console */
@@ -33,9 +37,10 @@ Usage: generate-types [options] <definition-files...>
 Generate TypeScript type definitions from yass-orm model definitions.
 
 Options:
-  --dry-run    Show what would be generated without writing files
-  --verbose    Show generated content in dry-run mode
-  --help       Show this help message
+  --dry-run              Show what would be generated without writing files
+  --verbose              Show generated content in dry-run mode
+  --header-comment "..." Custom comment to add to the header of generated files
+  --help                 Show this help message
 
 Examples:
   # Generate types for a single model
@@ -47,12 +52,21 @@ Examples:
   # Dry run to preview output
   generate-types --dry-run --verbose path/to/defs/my-model.js
 
+  # Add custom header comment for regeneration instructions
+  generate-types --header-comment "To regenerate: npm run generate-model-types" path/to/defs/*.js
+
 Output:
   For each input file (e.g., my-model.js), a co-located .d.ts file
-  is generated (e.g., my-model.d.ts) with:
+  is generated with:
   - Interface for instance properties
   - Type for static model methods
   - Default export type
+
+  Output location is determined automatically:
+  - TypeScript models (.ts): types go in defs/ folder
+  - JavaScript models (.js): types go next to the model file
+  
+  Old type files in alternate locations are automatically cleaned up.
 `);
 }
 
@@ -63,11 +77,15 @@ async function main() {
 	const options = {
 		dryRun: false,
 		verbose: false,
+		headerComment: undefined,
 	};
 
 	const files = [];
+	let i = 0;
 
-	for (const arg of args) {
+	while (i < args.length) {
+		const arg = args[i];
+
 		if (arg === '--help' || arg === '-h') {
 			showHelp();
 			process.exit(0);
@@ -75,6 +93,14 @@ async function main() {
 			options.dryRun = true;
 		} else if (arg === '--verbose') {
 			options.verbose = true;
+		} else if (arg === '--header-comment') {
+			// Next argument is the comment value
+			i++;
+			if (i >= args.length) {
+				console.error('Error: --header-comment requires a value');
+				process.exit(1);
+			}
+			options.headerComment = args[i];
 		} else if (arg.startsWith('-')) {
 			console.error(`Unknown option: ${arg}`);
 			showHelp();
@@ -82,6 +108,7 @@ async function main() {
 		} else {
 			files.push(arg);
 		}
+		i++;
 	}
 
 	if (files.length === 0) {
