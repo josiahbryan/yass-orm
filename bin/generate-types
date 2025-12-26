@@ -37,10 +37,14 @@ Usage: generate-types [options] <definition-files...>
 Generate TypeScript type definitions from yass-orm model definitions.
 
 Options:
-  --dry-run              Show what would be generated without writing files
-  --verbose              Show generated content in dry-run mode
-  --header-comment "..." Custom comment to add to the header of generated files
-  --help                 Show this help message
+  --dry-run                     Show what would be generated without writing files
+  --verbose                     Show generated content in dry-run mode
+  --header-comment "..."        Custom comment to add to the header of generated files
+  --workspace-roots "a,b,..."   Comma-separated workspace root names (e.g., "backend,shared")
+                                When imports cross into these roots, workspace-relative paths
+                                are used (e.g., 'backend/src/db/models/user') instead of
+                                ugly relative paths (e.g., '../../../../../backend/...')
+  --help                        Show this help message
 
 Examples:
   # Generate types for a single model
@@ -52,8 +56,8 @@ Examples:
   # Dry run to preview output
   generate-types --dry-run --verbose path/to/defs/my-model.js
 
-  # Add custom header comment for regeneration instructions
-  generate-types --header-comment "To regenerate: npm run generate-model-types" path/to/defs/*.js
+  # Use workspace-relative imports for backend and shared
+  generate-types --workspace-roots "backend,shared" path/to/defs/*.js
 
 Output:
   For each input file (e.g., my-model.js), a co-located .d.ts file
@@ -78,6 +82,7 @@ async function main() {
 		dryRun: false,
 		verbose: false,
 		headerComment: undefined,
+		workspaceRoots: [],
 	};
 
 	const files = [];
@@ -101,6 +106,14 @@ async function main() {
 				process.exit(1);
 			}
 			options.headerComment = args[i];
+		} else if (arg === '--workspace-roots') {
+			// Next argument is a comma-separated list of workspace root names
+			i++;
+			if (i >= args.length) {
+				console.error('Error: --workspace-roots requires a value');
+				process.exit(1);
+			}
+			options.workspaceRoots = args[i].split(',').map((r) => r.trim());
 		} else if (arg.startsWith('-')) {
 			console.error(`Unknown option: ${arg}`);
 			showHelp();

@@ -7,6 +7,25 @@ Why? Mainly for my personal use in a variety of projects.
 ## Recent changes
 
 ---
+- 2025-12-25
+  - (feat) **Linked Model Type Generation** - Type generator now produces proper typed imports for linked models instead of `string`
+    - TypeScript model links (`.ts`) import the class type directly, preserving custom methods and ORM methods
+    - JavaScript model links (`.js`) import the generated `Instance` interface from the `.d.ts` file
+    - Bare module names (e.g., `t.linked('account')`) are automatically resolved using yass-orm's resolution logic
+    - Handles both standard pattern (`models/defs/`) and sibling pattern (`db/defs/` + `db/models/`)
+  - (feat) **Workspace-Relative Import Paths** - New `--workspace-roots` CLI option for cleaner imports
+    - Usage: `generate-types --workspace-roots "backend,shared" path/to/defs/*.js`
+    - When linked models cross workspace roots, imports use clean paths (e.g., `'backend/src/db/models/user'`)
+    - Avoids ugly deeply-nested relative paths (e.g., `'../../../../../backend/src/db/models/user'`)
+  - (feat) **Instance Interface Extends ORM Methods** - Generated `*Instance` interfaces now extend `DatabaseObjectInstanceMethods`
+    - Automatically includes ORM instance methods like `jsonify`, `patch`, `remove`, etc.
+    - No need to manually add these to your custom interfaces
+  - (fix) **Improved Model Resolution for defs/ Directories** - Fixed bare module name resolution for type generation
+    - Standard pattern: `defs/` as child of `models/` → looks in parent `models/` folder
+    - Sibling pattern: `defs/` as sibling of `models/` → looks in sibling `models/` folder
+    - Ensures linked model imports point to model files, not definition files
+
+---
 - 2025-12-24
   - (feat) **Generic Instance Type Parameter for DatabaseObjectStatic** - Added second generic parameter `TInstance` to `DatabaseObjectStatic` interface
     - Allows frameworks to specify custom instance return types for all static methods
