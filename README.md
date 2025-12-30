@@ -7,6 +7,31 @@ Why? Mainly for my personal use in a variety of projects.
 ## Recent changes
 
 ---
+- 2025-12-29
+  - (feat) **Nested Object Type Generation** - Type generator now produces proper TypeScript types for complex nested object schemas
+    - Direct schema fields in `t.object()` - Use `t.object({ name: t.string, ... })` instead of requiring `t.object({ schema: {...} })`
+    - Arrays of objects - `t.array(t.object({...}))` now generates proper `Array<{ field: type; ... }>` types
+    - Enums inside nested objects - Generates proper union types like `'option1' | 'option2' | null`
+    - Deeply nested structures - Recursive object and array nesting is fully supported
+  - (feat) **Named Sub-Types for Complex Fields** - Complex nested objects are extracted as separate exported interfaces
+    - Object fields generate interfaces like `PallasMemorySemanticProvenance`
+    - Array item types generate interfaces like `PallasMemorySemanticRevisionHistoryItem`
+    - Sub-types reference each other properly (e.g., `reasoningChain?: ProvenanceReasoningChainItem[]`)
+    - Main instance interface uses named types instead of inline types for cleaner, reusable code
+  - (feat) **New Type Definitions** - Added missing type definitions commonly used in schemas
+    - `t.bigint` - For large integers, stored as varchar for JS BigInt safety (generates `string` in TS)
+    - `t.uuid` - For UUID fields that aren't primary keys (char(36), generates `string` in TS)
+    - `t.any` - For generic/unknown values (longtext, generates `unknown` in TS)
+    - `t.number` - Alias for `t.real`/`t.float` (double, generates `number` in TS)
+    - `t.array()` without arguments now works (generates `unknown[]` in TS)
+  - (fix) **Improved `toPascalCase`** - Now correctly handles camelCase input
+    - `reasoningChain` → `ReasoningChain` (was incorrectly `Reasoningchain`)
+    - Kebab-case and snake_case continue to work as before
+  - (fix) **Filtered Expanded Sub-Fields** - SQL column expansions (like `provenance_sourceType`) are now excluded from TypeScript interfaces
+    - Only the main object field appears in the interface
+    - Cleaner, more accurate TypeScript types that match how you actually use the data
+
+---
 - 2025-12-25
   - (feat) **Linked Model Type Generation** - Type generator now produces proper typed imports for linked models instead of `string`
     - TypeScript model links (`.ts`) import the class type directly, preserving custom methods and ORM methods
