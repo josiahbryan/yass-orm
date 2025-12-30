@@ -7,6 +7,30 @@ Why? Mainly for my personal use in a variety of projects.
 ## Recent changes
 
 ---
+- 2025-12-30
+  - (feat) **Zod Schema Generation** - New `--zod` flag generates runtime validation schemas alongside TypeScript types
+    - Generates `.zod.ts` files in the `defs/` folder for each model definition
+    - Produces fully-typed Zod schemas that match your database schema exactly
+    - Named sub-schemas for nested objects (e.g., `PallasMemorySemanticProvenanceSchema`)
+    - Named sub-schemas for array items (e.g., `PallasMemorySemanticRevisionHistoryItemSchema`)
+    - Exports inferred types: `PallasMemorySemanticInput`, `PallasMemorySemanticOutput`
+    - Exports partial schema for updates: `PallasMemorySemanticPartialSchema`
+    - Usage: `generate-types --zod path/to/defs/*.js` (generates both `.d.ts` and `.zod.ts`)
+    - Usage: `generate-types --zod-only path/to/defs/*.js` (generates only `.zod.ts`)
+  - (feat) **Type Mappings for Zod** - Comprehensive SQL-to-Zod type mapping:
+    - `t.uuidKey` / `t.uuid` → `z.string().uuid()`
+    - `t.string` / `t.text` → `z.string()`
+    - `t.int` → `z.number().int()`
+    - `t.float` / `t.real` / `t.number` → `z.number()`
+    - `t.boolean` → `z.boolean()`
+    - `t.datetime` → `z.coerce.date().nullable()`
+    - `t.enum([...])` → `z.enum([...]).nullable()`
+    - `t.object({...})` → `z.object({...}).nullable()`
+    - `t.array(t.X)` → `z.array(z.X())`
+    - `t.linked('model')` → `z.string()` (just the foreign key ID)
+    - `t.any` → `z.unknown()`
+
+---
 - 2025-12-29
   - (feat) **Nested Object Type Generation** - Type generator now produces proper TypeScript types for complex nested object schemas
     - Direct schema fields in `t.object()` - Use `t.object({ name: t.string, ... })` instead of requiring `t.object({ schema: {...} })`

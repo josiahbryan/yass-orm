@@ -28,7 +28,10 @@
  */
 
 /* eslint-disable no-console */
-const { generateTypesForFiles } = require('../lib/generate-types');
+const {
+	generateTypesForFiles,
+	generateZodForFiles,
+} = require('../lib/generate-types');
 
 function showHelp() {
 	console.log(`
@@ -44,6 +47,8 @@ Options:
                                 When imports cross into these roots, workspace-relative paths
                                 are used (e.g., 'backend/src/db/models/user') instead of
                                 ugly relative paths (e.g., '../../../../../backend/...')
+  --zod                         Also generate Zod validation schemas (.zod.ts files)
+  --zod-only                    Only generate Zod schemas (skip .d.ts generation)
   --help                        Show this help message
 
 Examples:
@@ -52,6 +57,9 @@ Examples:
 
   # Generate types for multiple models  
   generate-types path/to/defs/*.js
+
+  # Generate both .d.ts and .zod.ts files
+  generate-types --zod path/to/defs/*.js
 
   # Dry run to preview output
   generate-types --dry-run --verbose path/to/defs/my-model.js
@@ -66,9 +74,15 @@ Output:
   - Type for static model methods
   - Default export type
 
+  With --zod, a .zod.ts file is also generated with:
+  - Zod schemas for runtime validation
+  - Input/Output types inferred from schemas
+  - Partial schemas for update operations
+
   Output location is determined automatically:
   - TypeScript models (.ts): types go in defs/ folder
   - JavaScript models (.js): types go next to the model file
+  - Zod schemas: always go in defs/ folder
   
   Old type files in alternate locations are automatically cleaned up.
 `);
@@ -83,6 +97,8 @@ async function main() {
 		verbose: false,
 		headerComment: undefined,
 		workspaceRoots: [],
+		generateZod: false,
+		zodOnly: false,
 	};
 
 	const files = [];
@@ -98,6 +114,11 @@ async function main() {
 			options.dryRun = true;
 		} else if (arg === '--verbose') {
 			options.verbose = true;
+		} else if (arg === '--zod') {
+			options.generateZod = true;
+		} else if (arg === '--zod-only') {
+			options.zodOnly = true;
+			options.generateZod = true;
 		} else if (arg === '--header-comment') {
 			// Next argument is the comment value
 			i++;
@@ -155,8 +176,26 @@ async function main() {
 	console.log(`Processing ${validFiles.length} definition file(s)...`);
 
 	try {
-		const results = await generateTypesForFiles(validFiles, options);
-		console.log(`\nSuccessfully generated ${results.length} type file(s).`);
+		let dtsCount = 0;
+		let zodCount = 0;
+
+		// Generate .d.ts files (unless --zod-only)
+		if (!options.zodOnly) {
+			const results = await generateTypesForFiles(validFiles, options);
+			dtsCount = results.length;
+		}
+
+		// Generate .zod.ts files (if --zod or --zod-only)
+		if (options.generateZod) {
+			const zodResults = await generateZodForFiles(validFiles, options);
+			zodCount = zodResults.length;
+		}
+
+		// Summary
+		const parts = [];
+		if (dtsCount > 0) parts.push(`${dtsCount} .d.ts`);
+		if (zodCount > 0) parts.push(`${zodCount} .zod.ts`);
+		console.log(`\nSuccessfully generated ${parts.join(' and ')} file(s).`);
 	} catch (error) {
 		console.error('Type generation failed:', error);
 		process.exit(1);
