@@ -8,22 +8,33 @@ Why? Mainly for my personal use in a variety of projects.
 
 ---
 - 2025-12-30
-  - (feat) **`noExpand` Option for Objects** - Store JSON without creating SQL columns for sub-fields
-    - Use `t.object({ schema: {...}, noExpand: true })` to define schema for TypeScript/Zod without SQL column expansion
-    - Schema is preserved for type generation, but data is stored as single JSON column
-    - Prevents database bloat from many sub-field columns when you just want typed JSON storage
-    - Example:
+  - (feat) **Smart Default for Object Schema Expansion** - Direct schema format now defaults to NO SQL column expansion
+    - **Direct format** (new): `t.object({ name: t.string, ... })` → defaults to `noExpand=true` (types only, no SQL columns)
+    - **Legacy format**: `t.object({ schema: {...} })` → defaults to `noExpand=false` (expands to SQL columns for backwards compat)
+    - Override with explicit `noExpand: true/false` if needed
+    - Example - **Types only, no SQL columns** (new default for direct format):
+      ```javascript
+      provenance: t.object({
+        sourceType: t.enum(['direct', 'inferred']),
+        confidence: t.real,
+      })
+      // Just creates `provenance` as longtext JSON
+      // TypeScript/Zod still know the full shape!
+      ```
+    - Example - **Expand to SQL columns** (legacy format):
       ```javascript
       provenance: t.object({
         schema: {
           sourceType: t.enum(['direct', 'inferred']),
           confidence: t.real,
         },
-        noExpand: true, // <-- Store as JSON, but keep schema for TypeScript/Zod
       })
+      // Creates `provenance_sourceType` and `provenance_confidence` columns
       ```
-    - Without `noExpand`: Creates `provenance_sourceType` and `provenance_confidence` columns
-    - With `noExpand: true`: Just creates `provenance` as longtext JSON, but TypeScript types still know the shape
+    - Example - **Force no expansion on legacy format**:
+      ```javascript
+      provenance: t.object({ schema: {...}, noExpand: true })
+      ```
   - (fix) **Improved Zod Output Formatting** - Generated `.zod.ts` files now produce cleaner output
     - Multi-line formatting for `z.input`, `z.output`, and `z.infer` type declarations
     - Enum values stay single-line (prettier will reformat as needed per project)
