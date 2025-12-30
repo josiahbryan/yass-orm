@@ -8,6 +8,9 @@ Why? Mainly for my personal use in a variety of projects.
 
 ---
 - 2025-12-30
+  - (fix) **Improved Zod Output Formatting** - Generated `.zod.ts` files now produce cleaner output
+    - Multi-line formatting for `z.input`, `z.output`, and `z.infer` type declarations
+    - Enum values stay single-line (prettier will reformat as needed per project)
   - (feat) **Zod Schema Generation** - New `--zod` flag generates runtime validation schemas alongside TypeScript types
     - Generates `.zod.ts` files in the `defs/` folder for each model definition
     - Produces fully-typed Zod schemas that match your database schema exactly
