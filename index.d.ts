@@ -113,7 +113,11 @@ export type DbHandle = {
 			idGenerator?: (() => string) | string;
 		},
 	) => Promise<any>;
-	patch: (tableAndIdField: string, id: any, fields: AnyRecord) => Promise<any>;
+	patch: (
+		tableAndIdField: string,
+		id: string,
+		fields: AnyRecord,
+	) => Promise<any>;
 	patchIf: (
 		tableAndIdField: string,
 		existing: AnyRecord,
@@ -127,8 +131,8 @@ export type DbHandle = {
 		patchIfFalsey?: AnyRecord,
 		opts?: { allowBlankIdOnCreate?: boolean; idGenerator?: () => string },
 	) => Promise<any>;
-	get: (tableAndIdField: string, id: any) => Promise<any>;
-	destroy: (tableAndIdField: string, id: any) => Promise<any>;
+	get: (tableAndIdField: string, id: string) => Promise<any>;
+	destroy: (tableAndIdField: string, id: string) => Promise<any>;
 	[key: string]: any;
 };
 
@@ -142,10 +146,10 @@ export type DbHandle = {
  */
 export interface DatabaseObjectInstanceMethods {
 	/** Unique identifier */
-	id: any;
+	id: string;
 
 	/** Optional name field (common pattern) */
-	name?: any;
+	name?: string;
 
 	/** Soft-delete flag */
 	isDeleted?: boolean;
@@ -323,7 +327,7 @@ export interface DatabaseObjectStatic<
 	): Promise<TInstance | null>;
 
 	/** Get a record by ID */
-	get(id: any, opts?: FindOptions): Promise<TInstance | null>;
+	get(id: string, opts?: FindOptions): Promise<TInstance | null>;
 
 	/** Create a new record */
 	create(data: Partial<TSchema>): Promise<TInstance>;
@@ -352,17 +356,17 @@ export interface DatabaseObjectStatic<
 	deflateValues(object?: AnyRecord, noUndefined?: boolean): AnyRecord;
 
 	/** Get cached instance by ID */
-	getCachedId(id: any, ...args: any[]): Promise<TInstance | undefined>;
+	getCachedId(id: string, ...args: any[]): Promise<TInstance | undefined>;
 
 	/** Cache an instance */
 	setCachedId(
-		id: any,
+		id: string,
 		freshData: TInstance,
 		...args: any[]
 	): Promise<TInstance>;
 
 	/** Remove an instance from cache */
-	removeCachedId(id: any): boolean;
+	removeCachedId(id: string): boolean;
 
 	/** Clear entire cache for this model */
 	clearCache(): void;
@@ -383,7 +387,7 @@ export interface DatabaseObjectStatic<
  */
 export declare class DatabaseObject {
 	// Common instance props (schema-dependent, so keep loose)
-	id: any;
+	id: string;
 
 	name?: any;
 
@@ -517,7 +521,7 @@ export declare class DatabaseObject {
 
 	static get<T extends typeof DatabaseObject>(
 		this: T,
-		id: any,
+		id: string,
 		opts?: FindOptions,
 	): Promise<InstanceType<T> | null>;
 
@@ -551,18 +555,18 @@ export declare class DatabaseObject {
 
 	static getCachedId<T extends typeof DatabaseObject>(
 		this: T,
-		id: any,
+		id: string,
 		...args: any[]
 	): Promise<InstanceType<T> | undefined>;
 
 	static setCachedId<T extends typeof DatabaseObject>(
 		this: T,
-		id: any,
+		id: string,
 		freshData: InstanceType<T>,
 		...args: any[]
 	): Promise<InstanceType<T>>;
 
-	static removeCachedId(id: any): boolean;
+	static removeCachedId(id: string): boolean;
 
 	static clearCache(): void;
 

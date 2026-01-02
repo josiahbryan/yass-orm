@@ -7,6 +7,16 @@ Why? Mainly for my personal use in a variety of projects.
 ## Recent changes
 
 ---
+- 2026-01-01
+  - (fix) **Properly Typed ID Fields and Parameters** - Changed `id: any` to `id: string` throughout type definitions
+    - `DatabaseObjectInstanceMethods.id` and `.name` are now `string` instead of `any`
+    - All ID parameters in static methods (`get`, `getCachedId`, `setCachedId`, `removeCachedId`) now typed as `string`
+    - `DbHandle` methods (`patch`, `get`, `destroy`) now accept `id: string` instead of `id: any`
+    - **Why this matters**: When `TSchema & DatabaseObjectInstanceMethods` was computed, `id: string & any` resolved to `any`
+    - This prevented TypeScript from catching bugs like passing `session.id` (string) where `session` (object) was expected
+    - Now properly typed to preserve type safety in downstream intersection types
+
+---
 - 2025-12-30
   - (feat) **Smart Default for Object Schema Expansion** - Direct schema format now defaults to NO SQL column expansion
     - **Direct format** (new): `t.object({ name: t.string, ... })` → defaults to `noExpand=true` (types only, no SQL columns)
