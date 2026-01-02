@@ -7,6 +7,14 @@ Why? Mainly for my personal use in a variety of projects.
 ## Recent changes
 
 ---
+- 2026-01-02
+  - (fix) **Runtime honoring of `noExpand` for nested objects** - Fixed `_processObjectSchema` to respect the `noExpand` flag at runtime
+    - Previously, even when `noExpand=true` was set during schema definition (preventing SQL column creation), the runtime deflate code would still try to write to those non-existent columns
+    - Now `_processObjectSchema` checks `row.noExpand` before expanding subfields to separate columns
+    - The `noExpand` flag is now propagated from `def-to-schema.js` through to the runtime schema
+    - This fixes "Unknown column 'metadata_fieldName'" errors when using direct `t.object({ ... })` format with nested field definitions
+
+---
 - 2026-01-01
   - (fix) **Properly Typed ID Fields and Parameters** - Changed `id: any` to `id: string` throughout type definitions
     - `DatabaseObjectInstanceMethods.id` and `.name` are now `string` instead of `any`
