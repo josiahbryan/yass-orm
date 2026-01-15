@@ -7,6 +7,26 @@ Why? Mainly for my personal use in a variety of projects.
 ## Recent changes
 
 ---
+- 2026-01-14
+  - (feat) **🎉 Fluent Schema API** - New chainable, expressive API for schema definitions inspired by Zod and Yup!
+    - Chain methods on any type: `t.string.description('...').minLength(1).maxLength(100)`
+    - **Universal methods** (all types): `.description()`, `.default()`, `.example()`, `.nullable()`
+    - **String methods**: `.minLength()`, `.maxLength()`, `.pattern()`, `.email()`, `.url()`
+    - **Number methods**: `.min()`, `.max()`, `.positive()`, `.negative()`, `.nonnegative()`
+    - **Array methods**: `.minItems()`, `.maxItems()` (or `.min()`, `.max()` for Zod compatibility)
+    - Works with function types too: `t.datetime.description('...')`, `t.enum([...]).default('...')`, `t.linked('user').description('...')`
+    - **100% backward compatible** - existing schemas work without modification
+    - See [FluentSchemaAPI.md](FluentSchemaAPI.md) for full documentation and examples
+  - (feat) **Metadata flows to generated code**:
+    - `.description()` → TypeScript JSDoc comments, Zod `.describe()`, MySQL `COMMENT` clauses
+    - `.example()` → TypeScript `@example` JSDoc tags
+    - Validation methods → Zod validation chains (`.min()`, `.max()`, `.regex()`, `.email()`, etc.)
+  - (feat) **Enhanced Zod generation** - Generated `.zod.ts` files now include:
+    - `.describe()` calls from schema descriptions
+    - Validation methods: `.min()`, `.max()`, `.regex()`, `.email()`, `.url()`, `.positive()`, etc.
+  - (feat) **MySQL schema comments** - `_description` metadata now generates `COMMENT` clauses on columns
+
+---
 - 2026-01-02
   - (fix) **Runtime honoring of `noExpand` for nested objects** - Fixed `_processObjectSchema` to respect the `noExpand` flag at runtime
     - Previously, even when `noExpand=true` was set during schema definition (preventing SQL column creation), the runtime deflate code would still try to write to those non-existent columns
