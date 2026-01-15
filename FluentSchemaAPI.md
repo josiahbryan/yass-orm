@@ -85,7 +85,10 @@ Sets a default value for the field:
 ```javascript
 status: t.string.default('pending')
 balance: t.float.default(0)
+tags: t.array(t.string).default([])  // Works on arrays too!
 ```
+
+> **Note:** For `longtext` columns (arrays, objects), the `DEFAULT` clause is skipped in the MySQL schema since MySQL doesn't support defaults on TEXT/BLOB types. The value is still stored in schema metadata for runtime use by the ORM.
 
 ### `.example(value)`
 
