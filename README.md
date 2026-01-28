@@ -7,6 +7,10 @@ Why? Mainly for my personal use in a variety of projects.
 ## Recent changes
 
 ---
+- 2026-01-28
+  - (fix) **`.default()` on types with data `default`** - Chainable types that already had a data property `default` (e.g. `t.bool` with `default: 0`) now get the `.default()` method, so `t.bool.default(false)` works; previously this threw `t.bool.default is not a function`.
+
+---
 - 2026-01-14
   - (feat) **🎉 Fluent Schema API** - New chainable, expressive API for schema definitions inspired by Zod and Yup!
     - Chain methods on any type: `t.string.description('...').minLength(1).maxLength(100)`
