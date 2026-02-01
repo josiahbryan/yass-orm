@@ -583,6 +583,19 @@ export declare function loadDefinition(
 	definitionFile: string | (() => any),
 ): typeof DatabaseObject;
 
+/**
+ * Register a definition function for bundled executable support.
+ * This enables bundled executables (e.g., bun build --compile) to pre-register
+ * definition functions that loadDefinition can use without filesystem access.
+ *
+ * @param name - The definition name/path (e.g., 'webhook-log' or 'defs/webhook-log')
+ * @param defFn - The definition function that returns the schema
+ */
+export declare function registerDefinition(
+	name: string,
+	defFn: (ctx: { types: any }) => any,
+): void;
+
 export declare function retryIfConnectionLost<T>(
 	fn: (dbh: DbHandle) => Promise<T>,
 ): Promise<T>;

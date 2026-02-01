@@ -8,13 +8,27 @@ Why? Mainly for my personal use in a variety of projects.
 
 ---
 - 2026-01-31
-  - (feat) **External Model Path Index for Bundled Executables** - Added support for pre-registering model classes via `globalThis.__YASS_ORM_MODEL_PATH_INDEX__`, enabling bundled executables (e.g., `bun build --compile`) to resolve linked models without filesystem access.
-    - `_resolveModelClass` now checks `globalThis.__YASS_ORM_MODEL_PATH_INDEX__` (a `Map<normalizedPath, ModelClass>`) before attempting filesystem-based resolution
-    - Paths are normalized by stripping extensions (`.js`, `.ts`, `.cjs`, `.mjs`) for consistent lookups
-    - If a model is found in the external index, it's cached in `MODEL_CLASS_CACHE` and returned immediately
-    - This solves the fundamental problem where bundlers (like Bun) embed source files in a virtual filesystem (`/$bunfs/`) but `fs.existsSync` and dynamic `import()` cannot resolve these virtual paths at runtime
-    - Consumer code can populate the index by calling `indexModelClass({ MyModel })` which sets `globalThis.__YASS_ORM_MODEL_PATH_INDEX__.set(normalizedPath, MyModel)`
+  - (feat) **Bundled Executable Support** - Added comprehensive support for bundled executables (e.g., `bun build --compile`) that cannot use filesystem-based module resolution.
+  
+  - (feat) **External Model Path Index** - Pre-register model classes via `globalThis.__YASS_ORM_MODEL_PATH_INDEX__`:
+    - `_resolveModelClass` checks this Map before attempting filesystem-based resolution
+    - Paths are normalized by extracting suffix from `/defs/` or `/models/` for consistent lookups
+    - Consumer code populates the index via `indexModelClass({ MyModel })` at module load time
     - Zero impact on existing workflows - falls back to normal filesystem resolution if model not in index
+  
+  - (feat) **External Definition Index** - Pre-register definition functions via `globalThis.__YASS_ORM_DEFINITION_INDEX__`:
+    - `getCachedDefinition` checks this Map before attempting `require()` calls
+    - New export: `registerDefinition(name, defFn)` - registers a definition function for later lookup
+    - Paths are normalized by extracting suffix from `/defs/` for consistent lookups
+    - Example usage:
+      ```javascript
+      import { registerDefinition } from 'yass-orm';
+      const def = ({ types: t }) => ({ table: 'users', schema: { ... } });
+      registerDefinition('user', def);
+      export default def;
+      ```
+  
+  - (docs) **Why this matters**: Bundlers like Bun embed source files in a virtual filesystem (`/$bunfs/`) but `require()`, `fs.existsSync`, and dynamic `import()` cannot resolve these virtual paths at runtime. These indexes allow pre-registering modules at build time so they can be looked up without filesystem access
 
 ---
 - 2026-01-28
