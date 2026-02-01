@@ -335,4 +335,70 @@ describe('#YASS-ORM', () => {
 		expect(result.length).to.equal(1);
 		expect(result[0].Index_type).to.equal('FULLTEXT');
 	});
+
+	describe('Edge cases: undefined data handling', () => {
+		// These tests verify the fix for race conditions where a record is deleted
+		// while an async operation (like a debounced vector upsert) tries to patch it.
+		// When dbh.patch returns undefined (record deleted), the ORM should handle gracefully.
+
+		it('inflateValues should return undefined when data is undefined', async () => {
+			const result = await NewClass.inflateValues(undefined);
+			expect(result).to.equal(undefined);
+		});
+
+		it('inflateValues should return undefined when data is null', async () => {
+			const result = await NewClass.inflateValues(null);
+			expect(result).to.equal(undefined);
+		});
+
+		it('inflateValues should work normally with valid data', async () => {
+			const result = await NewClass.inflateValues({ name: 'test', id: 123 });
+			expect(result).to.be.an('object');
+			expect(result.name).to.equal('test');
+			expect(result.id).to.equal(123);
+		});
+
+		it('_updateProperties should return instance unchanged when data is undefined', async () => {
+			// Create a test instance via inflate (the proper way to create in-memory instances)
+			const instance = await NewClass.inflate({ id: 999, name: 'original-name' });
+			const originalName = instance.name;
+			const originalId = instance.id;
+
+			// Call _updateProperties with undefined (simulates deleted record scenario)
+			const result = await instance._updateProperties(undefined);
+
+			// Should return the same instance, unchanged
+			expect(result).to.equal(instance);
+			expect(result.name).to.equal(originalName);
+			expect(result.id).to.equal(originalId);
+		});
+
+		it('_updateProperties should return instance unchanged when data is null', async () => {
+			// Create a test instance via inflate (the proper way to create in-memory instances)
+			const instance = await NewClass.inflate({ id: 998, name: 'original-name-null' });
+			const originalName = instance.name;
+			const originalId = instance.id;
+
+			// Call _updateProperties with null (simulates deleted record scenario)
+			const result = await instance._updateProperties(null);
+
+			// Should return the same instance, unchanged
+			expect(result).to.equal(instance);
+			expect(result.name).to.equal(originalName);
+			expect(result.id).to.equal(originalId);
+		});
+
+		it('_updateProperties should update instance normally with valid data', async () => {
+			// Create a test instance via inflate
+			const instance = await NewClass.inflate({ id: 997, name: 'before-update' });
+
+			// Call _updateProperties with valid data
+			const result = await instance._updateProperties({ id: 997, name: 'after-update' });
+
+			// Should return the same instance, now updated
+			expect(result).to.equal(instance);
+			expect(result.name).to.equal('after-update');
+			expect(result.id).to.equal(997);
+		});
+	});
 });
