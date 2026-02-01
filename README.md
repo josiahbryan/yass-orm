@@ -10,8 +10,26 @@ Why? Mainly for my personal use in a variety of projects.
 - 2026-01-31
   - (feat) **Bundled Executable Support** - Added comprehensive support for bundled executables (e.g., `bun build --compile`) that cannot use filesystem-based module resolution.
   
+  - (feat) **Build-Time Definition Path Map** - Set `globalThis.__YASS_DEF_PATH_MAP__` to inject a name-to-path mapping at build time:
+    - `getCachedDefinition` checks this object before attempting filesystem resolution
+    - Keys are definition names (filename without extension), values are full filesystem paths
+    - Enables Bun's `define` option to inject: `define: { 'globalThis.__YASS_DEF_PATH_MAP__': JSON.stringify(map) }`
+    - Example usage in build script:
+      ```javascript
+      await Bun.build({
+        entrypoints: ['./src/cli.ts'],
+        compile: true,
+        define: {
+          'globalThis.__YASS_DEF_PATH_MAP__': JSON.stringify({
+            'user': '/path/to/defs/user.js',
+            'post': '/path/to/defs/post.js',
+          }),
+        },
+      });
+      ```
+  
   - (feat) **Path Resolver for Bundled Executables** - Set `globalThis.__YASS_ORM_PATH_RESOLVER__` to translate virtual filesystem paths:
-    - Both `getCachedDefinition` and `_resolveModelClass` use this resolver
+    - Both `getCachedDefinition` and `_resolveModelClass` use this resolver as a fallback
     - Translates `/$bunfs/root/...` paths to real filesystem paths (e.g., `/opt/rubber/backend/...`)
     - Enables bundled executables to load definitions and models from disk without pre-registration
     - Example usage:
@@ -36,7 +54,12 @@ Why? Mainly for my personal use in a variety of projects.
     - New export: `registerDefinition(name, defFn)` - registers a definition function for later lookup
     - Paths are normalized by extracting suffix from `/defs/` for consistent lookups
   
-  - (docs) **Why this matters**: Bundlers like Bun embed source files in a virtual filesystem (`/$bunfs/`) but `require()`, `fs.existsSync`, and dynamic `import()` cannot resolve these virtual paths at runtime. The path resolver translates these paths to real filesystem locations where the source files still exist
+  - (feat) **Debug Logging** - Added `YASS_DEBUG_PATH_RESOLVER` env var to enable verbose logging of path resolution:
+    - Logs inputs to `getCachedDefinition` and `loadDefinition`
+    - Logs path map lookups and resolutions
+    - Useful for debugging bundled executable issues
+  
+  - (docs) **Why this matters**: Bundlers like Bun embed source files in a virtual filesystem (`/$bunfs/`) but `require()`, `fs.existsSync`, and dynamic `import()` cannot resolve these virtual paths at runtime. The path map and resolver mechanisms translate these paths to real filesystem locations where the source files still exist
 
 ---
 - 2026-01-28
