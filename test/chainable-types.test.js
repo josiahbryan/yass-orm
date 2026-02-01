@@ -1,3 +1,4 @@
+/* eslint-disable no-unused-vars */
 /* eslint-disable global-require */
 /* global it, describe, before */
 const { expect } = require('chai');
@@ -428,28 +429,32 @@ describe('#Chainable Types', () => {
 				);
 			});
 
-		it('should support .description().minItems().maxItems() on t.array()', () => {
-			const schema = convertDefinition(({ types: t }) => ({
-				table: 'test_array_desc',
-				schema: {
-					tags: t.array(t.string).description('List of tags').minItems(1).maxItems(10),
-				},
-			}));
-			expect(schema.fieldMap.tags._description).to.equal('List of tags');
-			expect(schema.fieldMap.tags._minItems).to.equal(1);
-			expect(schema.fieldMap.tags._maxItems).to.equal(10);
-		});
+			it('should support .description().minItems().maxItems() on t.array()', () => {
+				const schema = convertDefinition(({ types: t }) => ({
+					table: 'test_array_desc',
+					schema: {
+						tags: t
+							.array(t.string)
+							.description('List of tags')
+							.minItems(1)
+							.maxItems(10),
+					},
+				}));
+				expect(schema.fieldMap.tags._description).to.equal('List of tags');
+				expect(schema.fieldMap.tags._minItems).to.equal(1);
+				expect(schema.fieldMap.tags._maxItems).to.equal(10);
+			});
 
-		it('should support .min() and .max() as aliases for minItems/maxItems on t.array()', () => {
-			const schema = convertDefinition(({ types: t }) => ({
-				table: 'test_array_min_max',
-				schema: {
-					items: t.array(t.string).min(2).max(5),
-				},
-			}));
-			expect(schema.fieldMap.items._minItems).to.equal(2);
-			expect(schema.fieldMap.items._maxItems).to.equal(5);
-		});
+			it('should support .min() and .max() as aliases for minItems/maxItems on t.array()', () => {
+				const schema = convertDefinition(({ types: t }) => ({
+					table: 'test_array_min_max',
+					schema: {
+						items: t.array(t.string).min(2).max(5),
+					},
+				}));
+				expect(schema.fieldMap.items._minItems).to.equal(2);
+				expect(schema.fieldMap.items._maxItems).to.equal(5);
+			});
 		});
 	});
 
@@ -548,16 +553,17 @@ exports.default = ({ types: t }) => ({
 						.description('Account balance')
 						.nonnegative()
 						.default(0),
-					status: t.enum(['active', 'inactive', 'pending'])
+					status: t
+						.enum(['active', 'inactive', 'pending'])
 						.description('Account status')
 						.default('pending'),
-					roles: t.array(t.string)
-						.description('User roles')
-						.minItems(1),
-					settings: t.object({
-						theme: t.string.description('UI theme preference'),
-						notifications: t.bool.description('Email notifications enabled'),
-					}).description('User settings'),
+					roles: t.array(t.string).description('User roles').minItems(1),
+					settings: t
+						.object({
+							theme: t.string.description('UI theme preference'),
+							notifications: t.bool.description('Email notifications enabled'),
+						})
+						.description('User settings'),
 					tenant: t.linked('tenant').description('Owning tenant'),
 					createdAt: t.datetime.description('When the user was created'),
 					updatedAt: t.datetime.description('Last update time'),
@@ -605,14 +611,7 @@ exports.default = ({ types: t }) => ({
 					inbound: t.bool,
 					messageType: t.string,
 					text: t.text,
-					channelType: t.enum([
-						'auto',
-						'phone',
-						'sms',
-						'email',
-						'web',
-						'bot',
-					]),
+					channelType: t.enum(['auto', 'phone', 'sms', 'email', 'web', 'bot']),
 					channelData: t.object(),
 					attachments: t.object(),
 					metadata: t.object(),

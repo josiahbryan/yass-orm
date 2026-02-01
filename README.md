@@ -7,6 +7,16 @@ Why? Mainly for my personal use in a variety of projects.
 ## Recent changes
 
 ---
+- 2026-01-31
+  - (feat) **External Model Path Index for Bundled Executables** - Added support for pre-registering model classes via `globalThis.__YASS_ORM_MODEL_PATH_INDEX__`, enabling bundled executables (e.g., `bun build --compile`) to resolve linked models without filesystem access.
+    - `_resolveModelClass` now checks `globalThis.__YASS_ORM_MODEL_PATH_INDEX__` (a `Map<normalizedPath, ModelClass>`) before attempting filesystem-based resolution
+    - Paths are normalized by stripping extensions (`.js`, `.ts`, `.cjs`, `.mjs`) for consistent lookups
+    - If a model is found in the external index, it's cached in `MODEL_CLASS_CACHE` and returned immediately
+    - This solves the fundamental problem where bundlers (like Bun) embed source files in a virtual filesystem (`/$bunfs/`) but `fs.existsSync` and dynamic `import()` cannot resolve these virtual paths at runtime
+    - Consumer code can populate the index by calling `indexModelClass({ MyModel })` which sets `globalThis.__YASS_ORM_MODEL_PATH_INDEX__.set(normalizedPath, MyModel)`
+    - Zero impact on existing workflows - falls back to normal filesystem resolution if model not in index
+
+---
 - 2026-01-28
   - (fix) **`.default()` on types with data `default`** - Chainable types that already had a data property `default` (e.g. `t.bool` with `default: 0`) now get the `.default()` method, so `t.bool.default(false)` works; previously this threw `t.bool.default is not a function`.
 
