@@ -1,9 +1,10 @@
+/* eslint-disable no-console */
 /* eslint-disable global-require */
-/* global it, describe */
+/* global it, describe, after */
 const { expect } = require('chai');
 const uuid = require('uuid').v4;
 const YassORM = require('../lib');
-const { checkJsonSupport } = require('../lib/sync-to-db');
+const { checkJsonSupport, syncSchemaToDb } = require('../lib/sync-to-db');
 
 const { debugSql } = YassORM.DatabaseObject;
 
@@ -360,7 +361,10 @@ describe('#YASS-ORM', () => {
 
 		it('_updateProperties should return instance unchanged when data is undefined', async () => {
 			// Create a test instance via inflate (the proper way to create in-memory instances)
-			const instance = await NewClass.inflate({ id: 999, name: 'original-name' });
+			const instance = await NewClass.inflate({
+				id: 999,
+				name: 'original-name',
+			});
 			const originalName = instance.name;
 			const originalId = instance.id;
 
@@ -375,7 +379,10 @@ describe('#YASS-ORM', () => {
 
 		it('_updateProperties should return instance unchanged when data is null', async () => {
 			// Create a test instance via inflate (the proper way to create in-memory instances)
-			const instance = await NewClass.inflate({ id: 998, name: 'original-name-null' });
+			const instance = await NewClass.inflate({
+				id: 998,
+				name: 'original-name-null',
+			});
 			const originalName = instance.name;
 			const originalId = instance.id;
 
@@ -390,15 +397,108 @@ describe('#YASS-ORM', () => {
 
 		it('_updateProperties should update instance normally with valid data', async () => {
 			// Create a test instance via inflate
-			const instance = await NewClass.inflate({ id: 997, name: 'before-update' });
+			const instance = await NewClass.inflate({
+				id: 997,
+				name: 'before-update',
+			});
 
 			// Call _updateProperties with valid data
-			const result = await instance._updateProperties({ id: 997, name: 'after-update' });
+			const result = await instance._updateProperties({
+				id: 997,
+				name: 'after-update',
+			});
 
 			// Should return the same instance, now updated
 			expect(result).to.equal(instance);
 			expect(result.name).to.equal('after-update');
 			expect(result.id).to.equal(997);
 		});
+	});
+});
+
+/**
+ * Regression test for isDeleted DEFAULT bug
+ *
+ * Bug: When t.bool was defined with { default: 0 }, the default value was being
+ * lost when the .default() chainable method was attached in createChainableType().
+ * This caused isDeleted columns to be created WITHOUT DEFAULT 0, making INSERTs
+ * fail with "Field 'isDeleted' doesn't have a default value" error.
+ *
+ * Fix: Preserve __defaultValue in createChainableType() before .default() overwrites it.
+ */
+describe('#isDeleted DEFAULT Regression', () => {
+	const testTableName = 'yass_isdeleted_regression_test';
+	let TestModel;
+
+	// Schema definition with isDeleted: t.bool (no explicit default override)
+	const testSchema = ({ types: t }) => ({
+		table: testTableName,
+		schema: {
+			id: t.idKey,
+			name: t.string,
+			// isDeleted is auto-added by the ORM with t.bool
+			// This should get DEFAULT 0 in the CREATE TABLE statement
+		},
+	});
+
+	it('should create table with DEFAULT 0 for isDeleted', async () => {
+		// Convert and sync the schema - this tests the SQL generation
+		const schema = YassORM.convertDefinition(testSchema);
+		await syncSchemaToDb(schema);
+
+		// Load the model for subsequent tests
+		TestModel = YassORM.loadDefinition(testSchema);
+
+		// Verify the table was created with DEFAULT 0
+		const explainResult = await TestModel.withDbh(
+			`SHOW COLUMNS FROM ${testTableName} WHERE Field = 'isDeleted'`,
+		);
+
+		expect(explainResult).to.have.length(1);
+		const isDeletedColumn = explainResult[0];
+		expect(isDeletedColumn.Default).to.equal('0');
+		expect(isDeletedColumn.Null).to.equal('NO');
+	});
+
+	it('should successfully INSERT without specifying isDeleted', async () => {
+		// This is the actual regression test - INSERT should succeed because
+		// the column has DEFAULT 0
+		const testName = `test-${uuid()}`;
+		const record = await TestModel.create({ name: testName });
+
+		expect(record.id).to.not.equal(null);
+		expect(record.id).to.not.equal(undefined);
+		expect(record.name).to.equal(testName);
+		// ORM inflates int(1) to boolean false, so check falsy value
+		expect(Boolean(record.isDeleted)).to.equal(false);
+
+		// Clean up
+		await record.reallyDelete();
+	});
+
+	it('should use DEFAULT 0 for isDeleted when queried from database', async () => {
+		const testName = `test-verify-${uuid()}`;
+
+		// Create record (isDeleted defaults to 0)
+		const record = await TestModel.create({ name: testName });
+
+		// Query the database directly to verify DEFAULT was used
+		const [dbRecord] = await TestModel.withDbh(
+			`SELECT isDeleted FROM ${testTableName} WHERE id = :id`,
+			{ id: record.id },
+		);
+		// Verify the DEFAULT 0 was applied by the database
+		expect(dbRecord.isDeleted).to.equal(0);
+
+		await record.reallyDelete();
+	});
+
+	after(async () => {
+		// Drop the test table using withDbh
+		try {
+			await TestModel.withDbh(`DROP TABLE IF EXISTS ${testTableName}`);
+		} catch (err) {
+			console.error('Failed to drop test table:', err);
+		}
 	});
 });

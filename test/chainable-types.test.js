@@ -526,7 +526,69 @@ exports.default = ({ types: t }) => ({
 	});
 
 	// ============================================
-	// SECTION 4: Integration Tests
+	// SECTION 4: Default Value Preservation Tests
+	// ============================================
+
+	describe('Default Value Preservation', () => {
+		it('should preserve initial default value of t.bool (default: 0)', () => {
+			// This test verifies the fix for the isDeleted DEFAULT bug
+			// t.bool is defined with { default: 0 } and this must be preserved
+			// even though the .default() chainable method is attached
+			const schema = convertDefinition(({ types: t }) => ({
+				table: 'test_bool_default',
+				schema: {
+					isActive: t.bool,
+				},
+			}));
+			expect(schema.fieldMap.isActive.type).to.equal('int(1)');
+			expect(schema.fieldMap.isActive.default).to.equal(0);
+			expect(schema.fieldMap.isActive.null).to.equal(0);
+		});
+
+		it('should preserve default: 0 for isDeleted field added by ORM', () => {
+			// The ORM automatically adds isDeleted: t.bool to all schemas
+			// This test ensures that field also gets the default: 0 preserved
+			const schema = convertDefinition(({ types: t }) => ({
+				table: 'test_isdeleted_default',
+				schema: {
+					id: t.uuidKey,
+					name: t.string,
+				},
+				// legacyExternalSchema: false is the default, so isDeleted is auto-added
+			}));
+			// isDeleted should be auto-added with default: 0
+			expect(schema.fieldMap.isDeleted).to.not.equal(undefined);
+			expect(schema.fieldMap.isDeleted.type).to.equal('int(1)');
+			expect(schema.fieldMap.isDeleted.default).to.equal(0);
+		});
+
+		it('should allow overriding default via .default() method', () => {
+			// Ensure the .default() chainable method still works
+			const schema = convertDefinition(({ types: t }) => ({
+				table: 'test_bool_override_default',
+				schema: {
+					isActive: t.bool.default(1),
+				},
+			}));
+			expect(schema.fieldMap.isActive.default).to.equal(1);
+		});
+
+		it('should preserve default for other types with initial defaults', () => {
+			// t.bool is the main case, but verify the pattern works generally
+			const schema = convertDefinition(({ types: t }) => ({
+				table: 'test_other_defaults',
+				schema: {
+					flag1: t.bool,
+					flag2: t.boolean, // alias for t.bool
+				},
+			}));
+			expect(schema.fieldMap.flag1.default).to.equal(0);
+			expect(schema.fieldMap.flag2.default).to.equal(0);
+		});
+	});
+
+	// ============================================
+	// SECTION 5: Integration Tests
 	// ============================================
 
 	describe('Integration', () => {

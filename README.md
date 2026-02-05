@@ -62,6 +62,10 @@ Why? Mainly for my personal use in a variety of projects.
   - (docs) **Why this matters**: Bundlers like Bun embed source files in a virtual filesystem (`/$bunfs/`) but `require()`, `fs.existsSync`, and dynamic `import()` cannot resolve these virtual paths at runtime. The path map and resolver mechanisms translate these paths to real filesystem locations where the source files still exist
 
 ---
+- 2026-02-05
+  - (fix) **Preserve initial `default` value in chainable types** - Fixed a bug where chainable types defined with an initial `default` value (like `t.bool` with `default: 0`) would lose that value when the `.default()` chainable method was attached. This caused `isDeleted` columns (which use `t.bool`) to be created WITHOUT `DEFAULT 0` in the SQL, leading to "Field 'isDeleted' doesn't have a default value" errors on INSERT. The fix preserves the initial default value in `__defaultValue` before the `.default()` method can overwrite it.
+
+---
 - 2026-01-28
   - (fix) **`.default()` on types with data `default`** - Chainable types that already had a data property `default` (e.g. `t.bool` with `default: 0`) now get the `.default()` method, so `t.bool.default(false)` works; previously this threw `t.bool.default is not a function`.
 
