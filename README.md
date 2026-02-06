@@ -7,6 +7,10 @@ Why? Mainly for my personal use in a variety of projects.
 ## Recent changes
 
 ---
+- 2026-02-06
+  - (fix) **Quieter logging for connection-closed errors (08S01)** – When a query fails with "socket has unexpectedly been closed" (SQLState 08S01), the ORM now logs a single line ("Database connection closed, retrying...") instead of the full "Error processing query" block (Raw SQL, Interpolated SQL, stack trace). Retry behavior is unchanged: `retryIfConnectionLost` still runs and retries with a fresh connection. This reduces noisy stderr output in CLIs and logs when the pool occasionally returns a stale connection under concurrent load.
+
+---
 - 2026-01-31
   - (feat) **Bundled Executable Support** - Added comprehensive support for bundled executables (e.g., `bun build --compile`) that cannot use filesystem-based module resolution.
   
