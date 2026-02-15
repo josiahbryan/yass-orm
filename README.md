@@ -4,7 +4,122 @@ Yet Another Super Simple ORM
 
 Why? Mainly for my personal use in a variety of projects.
 
+## SQLite Support
+
+As of 2026-02, yass-orm supports SQLite as an alternative to MySQL/MariaDB. This enables local development, testing, and lightweight deployments without a MySQL server.
+
+### Configuration
+
+To use SQLite, update your `.yass-orm.js` config:
+
+```javascript
+module.exports = {
+  development: {
+    dialect: 'sqlite',        // or 'sqlite3'
+    filename: '/path/to/db.sqlite',  // Use ':memory:' for in-memory database
+  },
+  shared: {
+    schema: 'main',           // SQLite uses 'main' as the default schema
+    // ... your commonFields, etc.
+  },
+};
+```
+
+`better-sqlite3` is included as a direct dependency of `yass-orm`, so no separate install is required in consumer projects.
+Note: `better-sqlite3` is a native module and may require platform build tooling in some environments.
+
+### What's Automatically Translated
+
+The SQLite dialect automatically transforms common MySQL syntax in your raw SQL queries:
+
+Implementation note: transformations use a parser-first SQL rewrite pass with a quote/comment-safe scanner fallback so literals and comments are not rewritten accidentally.
+
+| MySQL Syntax | SQLite Equivalent | Auto-Translated |
+|--------------|-------------------|-----------------|
+| `:name` params | `$name` | Yes |
+| `` `identifier` `` (backticks) | `"identifier"` | Yes |
+| `col->>"$.path"` (JSON) | `json_extract(col, '$.path')` | Yes |
+| `col->"$.path"` (JSON) | `json_extract(col, '$.path')` | Yes |
+| `CONCAT(a, b, c)` | `(a \|\| b \|\| c)` | Yes |
+| `NOW()` | `datetime('now')` | Yes |
+| `LIMIT 10, 5` | `LIMIT 5 OFFSET 10` | Yes |
+
+### ORM Methods Work Transparently
+
+All high-level ORM methods work without changes:
+- `.search({ field: value })`
+- `.searchOne({ field: value })`
+- `.fromSql('field = :value', { value })`
+- `.get(id)`
+- `.create({ ... })`
+- `.patch({ ... })`
+- `.remove()`
+- Schema sync (`syncSchemaToDb`)
+
+### What Consumers Need to Handle
+
+If you write raw SQL via `pquery`/`roQuery`, be aware of these differences:
+
+| MySQL Syntax | Issue | Solution |
+|--------------|-------|----------|
+| `"string"` (double quotes) | SQLite uses `"` for identifiers | Use `'string'` single quotes |
+| `SHOW TABLES/COLUMNS/INDEXES` | MySQL-only commands | Use dialect introspection or avoid |
+| `schema.table` | Cross-database semantics differ from MySQL | Avoid assuming MySQL-style cross-database behavior |
+| `FULLTEXT` indexes | Not available in SQLite | Use FTS5 or alternative approach |
+| `ALTER TABLE ... MODIFY COLUMN` | Not supported directly | yass-orm attempts a safe table rebuild migration; some complex cases may still need manual migration |
+
+### Best Practice for Portable SQL
+
+To write SQL that works on both MySQL and SQLite:
+
+```javascript
+// Good - single quotes for strings (SQL standard)
+await Model.fromSql("name LIKE '%test%'");
+
+// Avoid - double quotes for strings (MySQL-specific)
+await Model.fromSql('name LIKE "%test%"');
+
+// Good - use ORM methods when possible
+const results = await Model.search({ name: 'test' });
+```
+
+### SQLite Limitations
+
+- **No UUID triggers**: SQLite doesn't have MySQL's `uuid()` function. UUIDs are generated in JavaScript instead.
+- **No connection pooling**: SQLite uses a single synchronous connection (handled automatically).
+- **No read replicas**: The `readonlyNodes` config is ignored for SQLite.
+- **Schema changes**: `ADD COLUMN` is supported; `DROP COLUMN` requires modern SQLite (3.35+) and can still be limited by schema constraints; modifying existing columns uses yass-orm table rebuild migration.
+
+### Running Tests with SQLite
+
+```bash
+# Run tests with SQLite dialect
+YASS_CONFIG=/path/to/.yass-orm.sqlite.js npm test
+
+# Run specific test file
+YASS_CONFIG=/path/to/.yass-orm.sqlite.js npx mocha --exit test/test.js
+```
+
+Some tests are intentionally skipped under SQLite where behavior is MySQL-specific (for example, certain cross-database and MySQL-only index inspection cases).
+
+---
+
 ## Recent changes
+
+---
+- 2026-02-15
+  - (feat) **SQLite Dialect Support** - yass-orm is now polymorphic and supports SQLite as an alternative to MySQL/MariaDB
+    - New `dialect: 'sqlite'` config option with `filename` for database path
+    - Automatic SQL syntax translation (`:name` → `$name`, backticks → double quotes, JSON operators, CONCAT, NOW(), LIMIT)
+    - SQLite schema-sync with automatic table rebuild when existing column definitions must change
+    - All ORM methods work transparently (`.search()`, `.fromSql()`, `.create()`, `.patch()`, etc.)
+    - Comprehensive dialect unit/integration coverage for both SQLite and MySQL dialect behavior
+    - See "SQLite Support" section above for full documentation
+  - (feat) **Dialect Abstraction Layer** - New `lib/dialects/` module with `BaseDialect`, `MySQLDialect`, and `SQLiteDialect`
+    - `getDialect(config)` factory function returns appropriate dialect instance
+    - Each dialect handles SQL transformation, parameter formatting, type mapping, DDL generation
+    - Schema introspection methods for tables, columns, and indexes
+  - (deps) Added `better-sqlite3` as a direct dependency for SQLite support
 
 ---
 - 2026-02-06

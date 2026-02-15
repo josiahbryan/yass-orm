@@ -1,10 +1,14 @@
 /* eslint-disable no-console */
 /* eslint-disable global-require */
-/* global it, describe, after */
+/* global it, describe, after, before */
 const { expect } = require('chai');
 const uuid = require('uuid').v4;
 const YassORM = require('../lib');
 const { checkJsonSupport, syncSchemaToDb } = require('../lib/sync-to-db');
+const config = require('../lib/config');
+
+// Detect if running with SQLite dialect
+const isSQLite = ['sqlite', 'sqlite3'].includes(config.dialect);
 
 const { debugSql } = YassORM.DatabaseObject;
 
@@ -241,7 +245,12 @@ describe('#YASS-ORM', () => {
 	});
 
 	let createdId;
-	it('should create new object in secondary database', async () => {
+	// SQLite doesn't support cross-database queries (schema.table syntax)
+	it('should create new object in secondary database', async function () {
+		if (isSQLite) {
+			this.skip();
+			return;
+		}
 		const id = uuid();
 		createdId = id;
 		sample = await Db2Class.create({ id, name: 'foobar' });
@@ -250,7 +259,12 @@ describe('#YASS-ORM', () => {
 		expect(sample.table()).to.equal('yass_test2.yass_test3');
 	});
 
-	it('should find object in secondary database with prefixed select from first class', async () => {
+	// SQLite doesn't support cross-database queries (schema.table syntax)
+	it('should find object in secondary database with prefixed select from first class', async function () {
+		if (isSQLite) {
+			this.skip();
+			return;
+		}
 		const [data] = await UuuidClass.withDbh((dbh) =>
 			dbh.pquery('select * from yass_test2.yass_test3 where id=:createdId', {
 				createdId,
@@ -259,7 +273,12 @@ describe('#YASS-ORM', () => {
 		expect(data.id).to.equal(createdId);
 	});
 
-	it('should allow hard delete for objects in secondary database', async () => {
+	// SQLite doesn't support cross-database queries (schema.table syntax)
+	it('should allow hard delete for objects in secondary database', async function () {
+		if (isSQLite) {
+			this.skip();
+			return;
+		}
 		await Db2Class.withDbh((dbh) =>
 			dbh.pquery(`delete from yass_test2.yass_test3 where id=:id`, {
 				id: createdId,
@@ -304,7 +323,12 @@ describe('#YASS-ORM', () => {
 		expect(string).to.equal('undefined');
 	});
 
-	it('should find JSON index on test table', async () => {
+	// SQLite doesn't support SHOW INDEXES syntax - uses PRAGMA index_list instead
+	it('should find JSON index on test table', async function () {
+		if (isSQLite) {
+			this.skip();
+			return;
+		}
 		const jsonSupported = await checkJsonSupport();
 		if (!jsonSupported) {
 			console.warn(
@@ -325,7 +349,12 @@ describe('#YASS-ORM', () => {
 		);
 	});
 
-	it('should find fulltext index on test table', async () => {
+	// SQLite doesn't support SHOW INDEXES syntax or FULLTEXT indexes
+	it('should find fulltext index on test table', async function () {
+		if (isSQLite) {
+			this.skip();
+			return;
+		}
 		const result = await UuuidClass.withDbh((dbh) =>
 			dbh.pquery(
 				`show indexes from yass_test2 where key_name = 'idx_name_fulltext'`,
@@ -416,6 +445,72 @@ describe('#YASS-ORM', () => {
 	});
 });
 
+describe('#SQLite table rebuild migrations', () => {
+	const rebuildTableName = 'yass_sqlite_rebuild_test';
+	let V1Model;
+	let V2Model;
+
+	const v1Schema = ({ types: t }) => ({
+		table: rebuildTableName,
+		schema: {
+			id: t.idKey,
+			payload: t.int,
+		},
+	});
+
+	const v2Schema = ({ types: t }) => ({
+		table: rebuildTableName,
+		schema: {
+			id: t.idKey,
+			payload: t.string,
+		},
+	});
+
+	before(function beforeSqliteRebuildSuite() {
+		if (!isSQLite) {
+			this.skip();
+		}
+	});
+
+	it('should rebuild table and preserve data when column definition changes', async () => {
+		const schemaV1 = YassORM.convertDefinition(v1Schema);
+		await syncSchemaToDb(schemaV1);
+		V1Model = YassORM.loadDefinition(v1Schema);
+
+		const created = await V1Model.create({ payload: 42 });
+		expect(created.id).to.not.equal(undefined);
+		expect(created.id).to.not.equal(null);
+
+		const schemaV2 = YassORM.convertDefinition(v2Schema);
+		await syncSchemaToDb(schemaV2);
+		V2Model = YassORM.loadDefinition(v2Schema);
+
+		const afterMigration = await V2Model.get(created.id);
+		expect(afterMigration).to.not.equal(undefined);
+		expect(afterMigration).to.not.equal(null);
+		expect(`${afterMigration.payload}`).to.equal('42');
+
+		const pragmaRows = await V2Model.withDbh(
+			`PRAGMA table_info(${rebuildTableName})`,
+		);
+		const payloadColumn = pragmaRows.find((row) => row.name === 'payload');
+		expect(payloadColumn).to.not.equal(undefined);
+		expect(payloadColumn).to.not.equal(null);
+		expect(`${payloadColumn.type}`.toUpperCase()).to.equal('TEXT');
+	});
+
+	after(async function afterSqliteRebuildSuite() {
+		if (!isSQLite || !V2Model) {
+			return;
+		}
+		try {
+			await V2Model.withDbh(`DROP TABLE IF EXISTS ${rebuildTableName}`);
+		} catch (err) {
+			console.error('Failed to drop sqlite rebuild test table:', err);
+		}
+	});
+});
+
 /**
  * Regression test for isDeleted DEFAULT bug
  *
@@ -439,6 +534,14 @@ describe('#isDeleted DEFAULT Regression', () => {
 			// isDeleted is auto-added by the ORM with t.bool
 			// This should get DEFAULT 0 in the CREATE TABLE statement
 		},
+	});
+
+	// Skip the entire suite for SQLite - uses MySQL-specific SHOW COLUMNS syntax
+	// and schema.table notation that SQLite doesn't support
+	before(function () {
+		if (isSQLite) {
+			this.skip();
+		}
 	});
 
 	it('should create table with DEFAULT 0 for isDeleted', async () => {
@@ -494,6 +597,10 @@ describe('#isDeleted DEFAULT Regression', () => {
 	});
 
 	after(async () => {
+		// Skip cleanup for SQLite (tests were skipped) or if TestModel wasn't created
+		if (isSQLite || !TestModel) {
+			return;
+		}
 		// Drop the test table using withDbh
 		try {
 			await TestModel.withDbh(`DROP TABLE IF EXISTS ${testTableName}`);

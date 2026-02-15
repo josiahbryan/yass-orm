@@ -11,6 +11,9 @@
   "scripts": {
     "test": "npm run test:schema-sync && mocha --exit --reporter spec test/**/*.test.js test/**/*.test.mjs test/test.js lib/**/*.test.js && npm run test:types",
     "test:schema-sync": "node bin/schema-sync test/fake*.js",
+    "test:dialects": "mocha --exit --reporter spec lib/dialects/test/*.test.js",
+    "test:sqlite": "mocha --exit --reporter spec lib/dialects/test/SQLiteDialect.test.js",
+    "test:mysql": "mocha --exit --reporter spec lib/dialects/test/MySQLDialect.test.js",
     "test:types": "tsd",
     "eslint:fix:watch": "nodemon node_modules/eslint/bin/eslint.js --verbose --ignore-path .eslintignore ./lib ./bin/schema-sync --fix",
     "eslint:fix": "eslint --ignore-path .eslintignore ./lib ./bin/schema-sync --fix",
@@ -31,9 +34,11 @@
   },
   "dependencies": {
     "babel-eslint": "^10.1.0",
+    "better-sqlite3": "^12.6.2",
     "chalk": "^4.1.2",
     "find-config": "^1.0.0",
     "mariadb": "^2.5.5",
+    "node-sql-parser": "^5.4.0",
     "parent-module": "^2.0.0",
     "uuid": "^8.3.2"
   },
