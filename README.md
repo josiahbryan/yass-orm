@@ -125,6 +125,8 @@ Some tests are intentionally skipped under SQLite where behavior is MySQL-specif
     - Preserves descending index direction from introspection (for example, `nonce DESC`)
     - Normalizes JSON functional index path forms so `->>"valence"` and `->>"$.valence"` compare equivalently
     - Adds regression tests to lock in these behaviors and prevent future reintroduction
+  - (fix) **Schema-sync idempotency for shorthand text indexes** - Aligns index signature comparison with generated MySQL DDL so shorthand text indexes (for example, `action`) compare as `action(255)` and stop re-creating on every sync run
+    - Adds explicit schema-sync idempotency regression coverage that runs sync twice and verifies those indexes are not recreated on the second pass
 
 ---
 - 2026-02-06
