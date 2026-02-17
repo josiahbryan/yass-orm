@@ -120,6 +120,11 @@ Some tests are intentionally skipped under SQLite where behavior is MySQL-specif
     - Each dialect handles SQL transformation, parameter formatting, type mapping, DDL generation
     - Schema introspection methods for tables, columns, and indexes
   - (deps) Added `better-sqlite3` as a direct dependency for SQLite support
+  - (fix) **Schema-sync index diff stability for MySQL** - Prevent repeated drop/recreate churn when indexes are already correct
+    - Preserves MySQL index prefix lengths from introspection (for example, `metric(230)`)
+    - Preserves descending index direction from introspection (for example, `nonce DESC`)
+    - Normalizes JSON functional index path forms so `->>"valence"` and `->>"$.valence"` compare equivalently
+    - Adds regression tests to lock in these behaviors and prevent future reintroduction
 
 ---
 - 2026-02-06
