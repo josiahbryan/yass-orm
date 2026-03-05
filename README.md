@@ -107,6 +107,10 @@ Some tests are intentionally skipped under SQLite where behavior is MySQL-specif
 ## Recent changes
 
 ---
+- 2026-03-05
+  - (fix) Updated internal jsonSafeStringify utility to detect running under Bun and proactively de-cycle JSON before stringifying
+
+---
 - 2026-02-15
   - (feat) **SQLite Dialect Support** - yass-orm is now polymorphic and supports SQLite as an alternative to MySQL/MariaDB
     - New `dialect: 'sqlite'` config option with `filename` for database path
