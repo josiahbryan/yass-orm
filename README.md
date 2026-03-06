@@ -104,10 +104,125 @@ Some tests are intentionally skipped under SQLite where behavior is MySQL-specif
 
 ---
 
+## PostgreSQL Support
+
+As of 2026-03, yass-orm supports PostgreSQL as a first-class dialect alongside MySQL/MariaDB and SQLite. This enables production deployments on PostgreSQL with full ORM functionality.
+
+### Configuration
+
+To use PostgreSQL, update your `.yass-orm.js` config:
+
+```javascript
+module.exports = {
+  development: {
+    dialect: 'postgres',        // or 'postgresql', 'pg'
+    host: 'localhost',
+    port: 5432,
+    user: 'myuser',
+    password: 'mypassword',
+    database: 'mydb',
+  },
+  shared: {
+    schema: 'mydb',
+    // ... your commonFields, etc.
+  },
+};
+```
+
+`pg` is included as a direct dependency of `yass-orm`, so no separate install is required in consumer projects.
+
+### What's Automatically Translated
+
+The PostgreSQL dialect automatically transforms common MySQL syntax in your raw SQL queries:
+
+Implementation note: transformations use a parser-first SQL rewrite pass with a quote/comment-safe scanner fallback so literals and comments are not rewritten accidentally.
+
+| MySQL Syntax | PostgreSQL Equivalent | Auto-Translated |
+|--------------|----------------------|-----------------|
+| `:name` params | `$1, $2, ...` (positional) | Yes |
+| `` `identifier` `` (backticks) | `"identifier"` | Yes |
+| `col->>"$.path"` (JSON) | `col->>'path'` | Yes |
+| `IFNULL(a, b)` | `COALESCE(a, b)` | Yes |
+| `CURDATE()` | `CURRENT_DATE` | Yes |
+| `LIMIT 10, 5` | `LIMIT 5 OFFSET 10` | Yes |
+
+### ORM Methods Work Transparently
+
+All high-level ORM methods work without changes:
+- `.search({ field: value })`
+- `.searchOne({ field: value })`
+- `.fromSql('field = :value', { value })`
+- `.get(id)`
+- `.create({ ... })`
+- `.patch({ ... })`
+- Schema sync (`syncSchemaToDb`)
+
+### What Consumers Need to Handle
+
+If you write raw SQL via `pquery`/`roQuery`, be aware of these differences:
+
+| MySQL Syntax | Issue | Solution |
+|--------------|-------|----------|
+| `"string"` (double quotes) | PostgreSQL uses `"` for identifiers | Use `'string'` single quotes |
+| `SHOW TABLES/COLUMNS/INDEXES` | MySQL-only commands | Use dialect introspection or avoid |
+| Stored functions / triggers | Not yet supported in PG dialect | Avoid or use raw PG SQL |
+| `AUTO_INCREMENT` | PG uses `SERIAL`/`BIGSERIAL` | Handled automatically by dialect |
+
+### Best Practice for Portable SQL
+
+To write SQL that works across MySQL, SQLite, and PostgreSQL:
+
+```javascript
+// Good - single quotes for strings (SQL standard)
+await Model.fromSql("name LIKE '%test%'");
+
+// Avoid - double quotes for strings (MySQL-specific)
+await Model.fromSql('name LIKE "%test%"');
+
+// Good - use ORM methods when possible
+const results = await Model.search({ name: 'test' });
+```
+
+### PostgreSQL Type Mapping
+
+| yass-orm Type | PostgreSQL Type |
+|---------------|-----------------|
+| `t.idKey` | `SERIAL PRIMARY KEY` |
+| `t.uuidKey` | `UUID PRIMARY KEY` |
+| `t.varchar(N)` | `VARCHAR(N)` |
+| `t.text` | `TEXT` |
+| `t.int` | `INTEGER` |
+| `t.bigint` | `BIGINT` |
+| `t.float` / `t.double` | `DOUBLE PRECISION` |
+| `t.bool` | `BOOLEAN` |
+| `t.json` | `JSONB` |
+| `t.blob` | `BYTEA` |
+| `t.date` | `DATE` |
+| `t.datetime` | `TIMESTAMP` |
+
+### PostgreSQL Limitations
+
+- **No stored functions/triggers**: The PG dialect does not yet support automatic creation of MySQL-style stored functions or triggers.
+- **INSERT RETURNING**: The dialect automatically appends `RETURNING *` to INSERT statements to retrieve generated IDs.
+- **Connection pooling**: Fully supported via `pg.Pool`.
+- **Read replicas**: Supported via `readonlyNodes` config.
+
+---
+
 ## Recent changes
 
 ---
 - 2026-03-05
+  - (feat) **PostgreSQL Dialect Support** - yass-orm now supports PostgreSQL as a first-class dialect
+    - New `dialect: 'postgres'` config option (also accepts `'postgresql'` or `'pg'`)
+    - Automatic SQL syntax translation (`:name` to `$N` positional, backticks to double quotes, JSON operators, IFNULL to COALESCE, CURDATE to CURRENT_DATE, LIMIT)
+    - Full type mapping (SERIAL, UUID, JSONB, BYTEA, BOOLEAN, DOUBLE PRECISION, etc.)
+    - Schema-sync with PostgreSQL type normalization and `information_schema` introspection
+    - GIN indexes for fulltext search, expression indexes for JSON columns
+    - ALTER COLUMN generates separate TYPE/NULL/DEFAULT statements per PostgreSQL requirements
+    - Auto-appends `RETURNING *` to INSERT statements for generated ID retrieval
+    - Connection pooling via `pg.Pool` and read replica support
+    - Comprehensive dialect unit test coverage (58+ tests)
   - (fix) Updated internal jsonSafeStringify utility to detect running under Bun and proactively de-cycle JSON before stringifying
 
 ---

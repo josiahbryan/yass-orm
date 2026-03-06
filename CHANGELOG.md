@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.0.9] - 2026-03-05
 
+### Added
+
+- **PostgreSQL Dialect Support** - yass-orm now supports PostgreSQL as a first-class dialect alongside MySQL/MariaDB and SQLite
+  - New `dialect: 'postgres'` config option (also accepts `'postgresql'` or `'pg'`)
+  - New `PostgresDialect` class extending `BaseDialect` with full type mapping, DDL generation, and schema introspection
+  - New `PostgresSqlTransformer` with AST-first + scanner fallback for MySQL-to-PostgreSQL SQL translation
+  - Automatic SQL syntax translation: `:name` → `$N` positional placeholders, backticks → double quotes, `IFNULL` → `COALESCE`, `CURDATE()` → `CURRENT_DATE`, JSON `$.path` → simple key, `LIMIT offset,count` → `LIMIT count OFFSET offset`
+  - Full PostgreSQL type mapping: `SERIAL`, `UUID`, `JSONB`, `BYTEA`, `BOOLEAN`, `DOUBLE PRECISION`, `TIMESTAMP`, etc.
+  - Schema-sync support with PostgreSQL type normalization via `information_schema` and `pg_index`/`pg_class` introspection
+  - GIN indexes for fulltext search, expression indexes for JSON columns
+  - `ALTER COLUMN` generates separate `TYPE`/`NOT NULL`/`DEFAULT` statements per PostgreSQL requirements
+  - Auto-appends `RETURNING *` to `INSERT` statements for generated ID retrieval
+  - Connection pooling via `pg.Pool` and read replica support
+  - `pg` added as a direct dependency
+  - Comprehensive test coverage: 24 transformer tests + 58 dialect tests
+
+### Changed
+
+- `dbh.js` updated to handle object return type from `transformSql` (for positional placeholder support)
+- `sync-to-db.js` updated with PostgreSQL port defaults, index naming conventions, and 9 type normalizations
+- `config.js` updated to document PostgreSQL dialect options
+
+### Fixed
+
 - Updated internal jsonSafeStringify utility to detect running under Bun and proactively de-cycle JSON before stringifying
 
 
