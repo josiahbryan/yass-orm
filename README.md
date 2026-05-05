@@ -212,6 +212,14 @@ const results = await Model.search({ name: 'test' });
 ## Recent changes
 
 ---
+- 2026-05-05
+  - (fix) **Schema-sync NOT NULL backfill diagnostics** - Schema sync now preflights ALTERs that make an existing nullable column `NOT NULL` and reports the required data backfill instead of surfacing MySQL's opaque "Invalid use of NULL value" error.
+    - Counts existing rows where the target column is `NULL` before running the unsafe ALTER
+    - Skips the ALTER when NULL rows are present, preserving the previous nullable column until data is backfilled
+    - Prints an actionable `UPDATE ... WHERE ... IS NULL` suggestion when the schema has a default value
+    - Adds regression coverage for both the diagnostic formatter and end-to-end schema-sync behavior
+
+---
 - 2026-03-05
   - (feat) **PostgreSQL Dialect Support** - yass-orm now supports PostgreSQL as a first-class dialect
     - New `dialect: 'postgres'` config option (also accepts `'postgresql'` or `'pg'`)

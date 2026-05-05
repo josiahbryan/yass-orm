@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.10] - 2026-05-05
+
+### Fixed
+
+- **Schema-sync NOT NULL backfill diagnostics** - Schema sync now preflights ALTERs that make an existing nullable column `NOT NULL` and reports the required data backfill instead of surfacing MySQL's opaque "Invalid use of NULL value" error
+  - Counts existing rows where the target column is `NULL` before running the unsafe ALTER
+  - Skips the ALTER when NULL rows are present, preserving the previous nullable column until data is backfilled
+  - Prints an actionable `UPDATE ... WHERE ... IS NULL` suggestion when the schema has a default value
+  - Adds regression coverage for both the diagnostic formatter and end-to-end schema-sync behavior
+
 ## [2.0.9] - 2026-03-05
 
 ### Added
