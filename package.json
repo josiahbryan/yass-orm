@@ -41,7 +41,7 @@
     "node-sql-parser": "^5.4.0",
     "parent-module": "^2.0.0",
     "pg": "^8.20.0",
-    "uuid": "^8.3.2"
+    "uuid": "^14.0.0"
   },
   "devDependencies": {
     "@types/node": "^25.0.2",
