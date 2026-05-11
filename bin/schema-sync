@@ -14,32 +14,72 @@ async function main() {
 	syncUtil.uploadMatchRatioFunction();
 
 	// Convert each definition to a schema using
-	await syncUtil.promiseMap(sourceFiles, async (definitionFile) => {
-		// -common-fields is used internally by convert-definition, so exlude it if someone
-		// just did a glob pattern, like definitions/*.js */
-		// Update to skip any files that start with a dash (-)
-		if (definitionFile.match(/\/-[^/]+\.js/)) {
-			return;
-		}
+	const results = await syncUtil.promiseMap(
+		sourceFiles,
+		async (definitionFile) => {
+			// -common-fields is used internally by convert-definition, so exlude it if someone
+			// just did a glob pattern, like definitions/*.js */
+			// Update to skip any files that start with a dash (-)
+			if (definitionFile.match(/\/-[^/]+\.js/)) {
+				return null;
+			}
 
-		console.log(`[${process.pid}] Processing: ${definitionFile} ...`);
+			console.log(`[${process.pid}] Processing: ${definitionFile} ...`);
 
-		// Convert the definition file to a JSON object containing a field list in the format that
-		// is compatible with mysqlSchemaUpdate()
-		const schema = syncUtil.convertFile(definitionFile);
+			// Per-file try/catch keeps us going past a failed table so we report
+			// the full picture at the end instead of bailing on the first failure.
+			let schema;
+			try {
+				// Convert the definition file to a JSON object containing a field list in the format that
+				// is compatible with mysqlSchemaUpdate()
+				schema = syncUtil.convertFile(definitionFile);
 
-		const { legacyExternalSchema } = schema;
-		if (legacyExternalSchema) {
-			console.warn(
-				`[${process.pid}] NOT syncing ${definitionFile} to database, 'legacyExternalSchema' set to true`,
-			);
-			return;
-		}
+				const { legacyExternalSchema } = schema;
+				if (legacyExternalSchema) {
+					console.warn(
+						`[${process.pid}] NOT syncing ${definitionFile} to database, 'legacyExternalSchema' set to true`,
+					);
+					return null;
+				}
 
-		await syncUtil.syncSchemaToDb(schema);
-	});
+				return await syncUtil.syncSchemaToDb(schema);
+			} catch (ex) {
+				console.error(
+					`[${process.pid}] Unexpected error syncing ${definitionFile}:`,
+					ex,
+				);
+				return {
+					table: schema && schema.table,
+					applied: 0,
+					failed: 1,
+					errors: [
+						{
+							table: schema && schema.table,
+							description: 'Unexpected exception in syncSchemaToDb',
+							sql: null,
+							error: ex,
+						},
+					],
+				};
+			}
+		},
+	);
+
+	return (results || []).filter(Boolean);
 }
 
 main()
-	.catch((ex) => console.error(ex))
-	.then(() => process.exit());
+	.then((results) => {
+		const totalErrors = results.reduce((sum, r) => sum + (r.failed || 0), 0);
+		if (totalErrors > 0) {
+			console.error(
+				`\n${totalErrors} schema-sync error(s) across ${results.length} table(s). Exiting non-zero.`,
+			);
+			process.exit(1);
+		}
+		process.exit(0);
+	})
+	.catch((ex) => {
+		console.error(ex);
+		process.exit(1);
+	});

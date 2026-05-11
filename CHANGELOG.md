@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.11] - 2026-05-10
+
+### Changed (potentially breaking)
+
+- **`bin/schema-sync` now exits non-zero when any ALTER fails.** Previously, per-statement errors were caught, pushed to an internal `sqlErrors` array, logged to stderr, and the bin still exited 0 regardless. CI consumers that check only the exit code (the standard shell convention) silently treated failed syncs as successful — including cases like `ALTER TABLE ... ADD COLUMN` being rejected by lock timeouts, insufficient privileges, or the NOT NULL preflight. The bin now aggregates per-table results and exits `1` if any errors occurred across any table, while still continuing past individual failures so one bad table doesn't hide errors in the rest. If you have CI that depends on schema-sync never failing the build, you'll need to address the underlying errors (or wrap the call) before upgrading.
+- **`syncSchemaToDb` now returns a result object** (`{ table, applied, failed, errors }`) instead of `undefined`. Callers can inspect `result.failed > 0` to drive their own policy. The existing side-effect logging is preserved.
+
+### Fixed
+
+- Fix typo in the schema-sync error summary line: "Enountered" → "Encountered". External log-greppers keyed on the old spelling will need to update.
+- `dialect.getTableColumns` failures during schema-sync are now recorded in the returned `errors` array instead of being silently warned-and-ignored.
+
 ## [2.0.10] - 2026-05-05
 
 ### Fixed
