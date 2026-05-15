@@ -212,6 +212,10 @@ const results = await Model.search({ name: 'test' });
 ## Recent changes
 
 ---
+- 2026-05-15 (2.0.13)
+  - (fix) **`dbh.create` / `dbh.createIgnore` / `dbh.upsert` default `idGenerator` is now a callable function.** Was `idGenerator = uuid()` (the *result* of calling uuid, i.e. a string) — should always have been `idGenerator = uuid` (the function reference). Latent bug never surfaced through `Model.create` because that path always passed its own generator; the new `dbh.createIgnore` used directly via `Model.withDbh` exposed it as `TypeError: idGenerator is not a function`. Includes a regression test.
+
+---
 - 2026-05-15
   - (feat) **Atomic at-most-once / upsert primitives** — `conn.createIgnore(table, fields, opts?)` and `conn.upsert(table, fields, { onDuplicate, conflictColumns, ... })` on the dbh, with matching dialect support for MySQL/MariaDB, SQLite, and Postgres. Replaces the SELECT-then-INSERT-with-catch pattern with a single race-free statement.
     - MySQL uses `INSERT ... ON DUPLICATE KEY UPDATE <col>=<col>` for the ignore path (NOT `INSERT IGNORE`, which would also swallow CHECK / NOT NULL / FK violations); SQLite and Postgres use `ON CONFLICT DO NOTHING` / `ON CONFLICT (...) DO UPDATE SET ...`. CHECK / NOT NULL / FK errors still throw on every dialect.

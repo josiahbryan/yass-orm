@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.13] - 2026-05-15
+
+### Fixed
+
+- **`dbh.create`, `dbh.createIgnore`, and `dbh.upsert` default `idGenerator` is now a function reference.** The previous default `idGenerator = uuid()` evaluated the *result* of calling `uuid()` (a fresh UUID string) at each call, so any caller that hit the `fields[idField] = idGenerator()` auto-id path without passing a function got `TypeError: idGenerator is not a function`. `Model.create` always passed its own `idGenerator`, so this latent bug never bit through that path — surfaced when business-coach started calling `dbh.createIgnore` directly via `Model.withDbh`. Default is now `idGenerator = uuid` (the function from `require('uuid').v4`).
+- Added a regression test that toggles `config.uuidLinkedIds = true` and calls `dbh.createIgnore` with no `id` and no `idGenerator` to lock in the fix.
+
 ## [2.0.12] - 2026-05-15
 
 ### Added

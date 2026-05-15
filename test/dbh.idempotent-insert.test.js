@@ -143,6 +143,34 @@ describe('createIgnore and upsert (atomic at-most-once / on-dup primitives)', ()
 			expect(isConstraintError(thrown)).to.equal(true);
 		});
 
+		it('Happy path: works when caller omits id AND idGenerator (default idGenerator must be callable)', async () => {
+			// Regression test for a latent bug: the default
+			// `idGenerator = uuid()` in dbh.js evaluated to a STRING (the
+			// result of calling uuid()), so any caller that hit the
+			// `fields[idField] = idGenerator()` path without passing a
+			// function got "idGenerator is not a function". Surfaced by
+			// business-coach DropService integration.
+			const config = require('../lib/config');
+			const originalUuidLinkedIds = config.uuidLinkedIds;
+			config.uuidLinkedIds = true;
+			try {
+				const row = await conn.createIgnore('drop_log', {
+					tenant: 'acme',
+					user: 'u-no-id',
+					sourceKey: 'no-id-source',
+					itemId: 'no-id-item',
+				});
+				expect(row, 'createIgnore should produce a row').to.exist;
+				expect(row.id, 'auto-generated id should be a string').to.be.a(
+					'string',
+				);
+				expect(row.id.length, 'auto-generated id should look like a UUID').to
+					.be.at.least(32);
+			} finally {
+				config.uuidLinkedIds = originalUuidLinkedIds;
+			}
+		});
+
 		it('Sad path: NOT NULL violations still throw', async () => {
 			let thrown;
 			try {
