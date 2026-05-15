@@ -212,6 +212,18 @@ const results = await Model.search({ name: 'test' });
 ## Recent changes
 
 ---
+- 2026-05-15
+  - (feat) **Atomic at-most-once / upsert primitives** — `conn.createIgnore(table, fields, opts?)` and `conn.upsert(table, fields, { onDuplicate, conflictColumns, ... })` on the dbh, with matching dialect support for MySQL/MariaDB, SQLite, and Postgres. Replaces the SELECT-then-INSERT-with-catch pattern with a single race-free statement.
+    - MySQL uses `INSERT ... ON DUPLICATE KEY UPDATE <col>=<col>` for the ignore path (NOT `INSERT IGNORE`, which would also swallow CHECK / NOT NULL / FK violations); SQLite and Postgres use `ON CONFLICT DO NOTHING` / `ON CONFLICT (...) DO UPDATE SET ...`. CHECK / NOT NULL / FK errors still throw on every dialect.
+    - `onDuplicate` accepts an array of column names (safe, parameterized copy from insert values) or an object `{ col: 'sql expression' }` for raw in-place expressions like `{ count: 'count + 1' }`. Array form is preferred — RHS of object form is interpolated, not escaped.
+    - `conflictColumns` is required by SQLite and Postgres (SQL standard); MySQL infers the matched UNIQUE index and ignores it.
+  - (feat) **Structured error fields preserved on wrapped query errors** — `pquery` now wraps driver errors while keeping `.cause`, `.code`, `.errno`, and `.sqlState` on the thrown Error. The original stack lives on `.originalStack` (no longer concatenated into `.message`, which used to bloat structured logs and break regex matchers). Message still starts with `"Error in query: "` for backward compatibility.
+  - (feat) **`silenceErrors` opt threaded through high-level methods** — `conn.search`, `conn.create`, `conn.findOrCreate`, `conn.createIgnore`, and `conn.upsert` accept `{ silenceErrors }` in their opts bag and forward to pquery, suppressing the `=== Error processing query ===` banner. `createIgnore` and `upsert` default `silenceErrors: true` since idempotency operations should not log on expected conflicts.
+  - (feat) **`isUniqueViolation(err)` and `isConstraintError(err)` exported** from `yass-orm`. Recognizes wrapped errors (walks `.cause`), checks structured fields first (`.code`/`.errno`/`.sqlState`), and falls back to message regex only when the driver stripped codes. Consumers no longer need to hand-roll dup-key detection in every catch block.
+  - (refactor) Consolidated insert SQL generation into a shared `conn._buildInsertParts(table, fields)` helper so `create`/`createIgnore`/`upsert` no longer drift on column/value list construction.
+  - (test) New mocha test files cover happy + sad paths for all four areas (24 tests): `test/dbh.error-wrapping.test.js`, `test/dbh.idempotent-insert.test.js`, `test/dbh.silence-errors.test.js`, plus a shared `test/helpers/captureConsoleError.js`.
+
+---
 - 2026-05-05
   - (fix) **Schema-sync NOT NULL backfill diagnostics** - Schema sync now preflights ALTERs that make an existing nullable column `NOT NULL` and reports the required data backfill instead of surfacing MySQL's opaque "Invalid use of NULL value" error.
     - Counts existing rows where the target column is `NULL` before running the unsafe ALTER
@@ -429,7 +441,7 @@ const results = await Model.search({ name: 'test' });
     - Sub-types reference each other properly (e.g., `reasoningChain?: ProvenanceReasoningChainItem[]`)
     - Main instance interface uses named types instead of inline types for cleaner, reusable code
   - (feat) **New Type Definitions** - Added missing type definitions commonly used in schemas
-    - `t.bigint` - For large integers, stored as varchar for JS BigInt safety (generates `string` in TS)
+    - `t.bigint` - For large integers, stored in native BIGINT-compatible columns and exposed as `string` in TS for JS number safety
     - `t.uuid` - For UUID fields that aren't primary keys (char(36), generates `string` in TS)
     - `t.any` - For generic/unknown values (longtext, generates `unknown` in TS)
     - `t.number` - Alias for `t.real`/`t.float` (double, generates `number` in TS)

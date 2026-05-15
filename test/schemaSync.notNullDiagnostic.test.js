@@ -8,8 +8,20 @@ const { dbh } = require('../lib/dbh');
 
 const {
 	buildNotNullBackfillDiagnostic,
+	mapDatabaseColumnTypeToSchemaType,
 	syncSchemaToDb,
 } = require('../lib/sync-to-db');
+
+describe('#schemaSync database type inference', () => {
+	it('maps database bigint columns back to t.bigint', () => {
+		expect(mapDatabaseColumnTypeToSchemaType({ type: 'bigint' })).to.equal(
+			't.bigint',
+		);
+		expect(mapDatabaseColumnTypeToSchemaType({ type: 'bigint(20)' })).to.equal(
+			't.bigint',
+		);
+	});
+});
 
 describe('#schemaSync NOT NULL diagnostics', () => {
 	it('explains nullable-to-required alters blocked by existing NULL rows', () => {

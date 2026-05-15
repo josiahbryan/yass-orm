@@ -6,6 +6,8 @@ const { convertDefinition } = require('../lib/def-to-schema');
 const {
 	generateTypesContent,
 	generateZodContent,
+	mapFieldToTsType,
+	mapFieldToZodSchema,
 } = require('../lib/generate-types');
 
 /**
@@ -40,6 +42,17 @@ describe('#Chainable Types', () => {
 			}));
 			expect(schema.fieldMap.count.type).to.equal('integer');
 			expect(schema.fieldMap.count.nativeType).to.equal(Number);
+		});
+
+		it('should store t.bigint as a database bigint while exposing strings to JavaScript', () => {
+			const schema = convertDefinition(({ types: t }) => ({
+				table: 'test_backward_bigint',
+				schema: {
+					largeCounter: t.bigint,
+				},
+			}));
+			expect(schema.fieldMap.largeCounter.type).to.equal('bigint');
+			expect(schema.fieldMap.largeCounter.nativeType).to.equal(String);
 		});
 
 		it('should work with t.bool used directly (no parens)', () => {
@@ -174,6 +187,17 @@ describe('#Chainable Types', () => {
 			expect(schema.fieldMap.tags.type).to.equal('longtext');
 			expect(schema.fieldMap.tags.isArray).to.equal(true);
 			expect(schema.fieldMap.tags.arrayItemType).to.equal('string');
+		});
+
+		it('should preserve bigint item metadata for t.array(t.bigint)', () => {
+			const schema = convertDefinition(({ types: t }) => ({
+				table: 'test_backward_array_bigint',
+				schema: {
+					largeCounters: t.array(t.bigint),
+				},
+			}));
+			expect(schema.fieldMap.largeCounters.isArray).to.equal(true);
+			expect(schema.fieldMap.largeCounters.arrayItemType).to.equal('bigint');
 		});
 
 		it('should work with t.array(t.object({ ... }))', () => {
@@ -502,6 +526,21 @@ exports.default = ({ types: t }) => ({
 				expect(schema.fieldMap.name._description).to.equal('User full name');
 				expect(schema.fieldMap.age._description).to.equal('User age');
 			});
+
+			it('should generate string TypeScript fields for bigint database columns', () => {
+				const tsType = mapFieldToTsType({ type: 'bigint', field: 'largeCounter' });
+				expect(tsType).to.equal('string');
+			});
+
+			it('should generate string array TypeScript fields for bigint arrays', () => {
+				const tsType = mapFieldToTsType({
+					type: 'longtext',
+					field: 'largeCounters',
+					isArray: true,
+					arrayItemType: 'bigint',
+				});
+				expect(tsType).to.equal('string[]');
+			});
 		});
 
 		describe('Zod Schema Generation', () => {
@@ -521,6 +560,24 @@ exports.default = ({ types: t }) => ({
 				expect(schema.fieldMap.age._description).to.equal('User age');
 				expect(schema.fieldMap.age._min).to.equal(0);
 				expect(schema.fieldMap.age._max).to.equal(150);
+			});
+
+			it('should generate string validation for bigint database columns', () => {
+				const zodSchema = mapFieldToZodSchema({
+					type: 'bigint',
+					field: 'largeCounter',
+				});
+				expect(zodSchema).to.include('z.string()');
+			});
+
+			it('should generate numeric string validation for bigint arrays', () => {
+				const zodSchema = mapFieldToZodSchema({
+					type: 'longtext',
+					field: 'largeCounters',
+					isArray: true,
+					arrayItemType: 'bigint',
+				});
+				expect(zodSchema).to.include('z.array(z.string().regex(/^-?\\d+$/))');
 			});
 		});
 	});

@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.12] - 2026-05-15
+
+### Added
+
+- **Atomic at-most-once / upsert primitives.** New `conn.createIgnore(tableAndIdField, fields, opts?)` and `conn.upsert(tableAndIdField, fields, { onDuplicate, conflictColumns, ... })` methods on the dbh, with matching dialect support for MySQL/MariaDB, SQLite, and Postgres.
+  - `createIgnore` returns the inserted row on success or `null` on UNIQUE/PK conflict — no race window, no try/catch, no console noise.
+  - `upsert` returns the final row whether inserted or updated. `onDuplicate` accepts an array of column names to copy from insert values (safe, parameterized) or an object `{ col: 'sql expression' }` for in-place SQL like `{ count: 'count + 1' }` (raw — not escaped).
+  - MySQL uses `INSERT ... ON DUPLICATE KEY UPDATE <col>=<col>` (not `INSERT IGNORE`, which would also swallow CHECK / NOT NULL / FK violations). SQLite and Postgres use `ON CONFLICT DO NOTHING` / `ON CONFLICT (...) DO UPDATE SET ...`. Non-conflict errors still throw on every dialect.
+  - `conflictColumns` is required by SQLite and Postgres; MySQL ignores it (infers from matched UNIQUE index).
+- **Structured error fields preserved on wrapped query errors.** Errors thrown by `pquery` now expose `.cause` (the original driver error), `.code`, `.errno`, and `.sqlState` so consumers can recognize dup-key / constraint / connection-closed violations without regex-matching the message. The original stack is on `.originalStack`.
+- **`silenceErrors` opt threaded through high-level methods.** `conn.search`, `conn.create`, `conn.findOrCreate`, `conn.createIgnore`, and `conn.upsert` accept `{ silenceErrors }` in their opts bag and forward to pquery. Suppresses the `=== Error processing query ===` banner without otherwise altering throw behavior. `createIgnore` and `upsert` default to `silenceErrors: true`.
+- **`isUniqueViolation(err)` and `isConstraintError(err)`** exported from the package root. Recognizes wrapped errors (walks `.cause`) across all four supported dialects via structured fields, with message-regex fallback for drivers that strip codes.
+
+### Changed
+
+- The wrapped-error message no longer concatenates the stack trace into `.message`. The stack is now on `.originalStack`. Message still starts with `"Error in query: "` for backward compatibility, so existing string matchers on the prefix continue to work. Matchers on `, original stack:` or the previously-doubled `"Error in query: Error:"` form will break — consumers should switch to the new structured fields.
+- Consolidated insert SQL generation into a shared `conn._buildInsertParts(table, fields)` helper so `create` / `createIgnore` / `upsert` share one column/value list construction path.
+
+### Fixed
+
+- `wrapQueryError` now extracts the driver error's `.message` instead of stringifying the whole error, eliminating the duplicate `"Error: "` prefix the old wrapping produced.
+
 ## [2.0.11] - 2026-05-10
 
 ### Changed (potentially breaking)

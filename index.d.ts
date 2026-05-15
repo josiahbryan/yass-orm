@@ -111,6 +111,7 @@ export type DbHandle = {
 		opts?: {
 			allowBlankIdOnCreate?: boolean;
 			idGenerator?: (() => string) | string;
+			silenceErrors?: boolean;
 		},
 	) => Promise<any>;
 	patch: (
@@ -129,8 +130,49 @@ export type DbHandle = {
 		fields: AnyRecord,
 		patchIf?: AnyRecord,
 		patchIfFalsey?: AnyRecord,
-		opts?: { allowBlankIdOnCreate?: boolean; idGenerator?: () => string },
+		opts?: {
+			allowBlankIdOnCreate?: boolean;
+			idGenerator?: () => string;
+			silenceErrors?: boolean;
+		},
 	) => Promise<any>;
+	/**
+	 * Atomic at-most-once insert. Uses dialect-specific `INSERT IGNORE`
+	 * (MySQL) or `INSERT ... ON CONFLICT DO NOTHING` (SQLite/Postgres).
+	 * Returns the inserted row, or `null` if a UNIQUE-key conflict
+	 * caused the insert to be skipped. Other errors still throw.
+	 */
+	createIgnore: (
+		tableAndIdField: string,
+		fields: AnyRecord,
+		opts?: {
+			allowBlankIdOnCreate?: boolean;
+			idGenerator?: (() => string) | string;
+			conflictColumns?: string[];
+			silenceErrors?: boolean;
+		},
+	) => Promise<AnyRecord | null>;
+	/**
+	 * Atomic insert-or-update. Uses `ON DUPLICATE KEY UPDATE` (MySQL) or
+	 * `ON CONFLICT(...) DO UPDATE SET ...` (SQLite/Postgres).
+	 *
+	 * `onDuplicate` is either an object mapping `{ column: 'sql expression' }`
+	 * (raw SQL on the right, e.g. `{ count: 'count + 1' }`) or an array of
+	 * column names to copy from the insert values.
+	 *
+	 * `conflictColumns` is required for SQLite/Postgres (ignored for MySQL).
+	 */
+	upsert: (
+		tableAndIdField: string,
+		fields: AnyRecord,
+		opts: {
+			onDuplicate: Record<string, string> | string[];
+			conflictColumns?: string[];
+			allowBlankIdOnCreate?: boolean;
+			idGenerator?: (() => string) | string;
+			silenceErrors?: boolean;
+		},
+	) => Promise<AnyRecord | null>;
 	get: (tableAndIdField: string, id: string) => Promise<any>;
 	destroy: (tableAndIdField: string, id: string) => Promise<any>;
 	[key: string]: any;
@@ -621,3 +663,17 @@ export declare function closeAllConnections(): Promise<{
 
 export declare const QueryTiming: any;
 export declare const QueryLogger: any;
+
+/**
+ * Recognize a UNIQUE/PRIMARY KEY violation across MySQL/MariaDB/Postgres/SQLite,
+ * including errors wrapped by yass-orm's internal `wrapQueryError`. Checks
+ * `.code` / `.errno` / `.sqlState` on both the wrapped error and its `.cause`,
+ * with a message-regex fallback for drivers that strip codes.
+ */
+export declare function isUniqueViolation(err: unknown): boolean;
+
+/**
+ * Recognize any integrity-constraint violation — UNIQUE/PK, CHECK, NOT NULL, FK —
+ * across all supported dialects. Broader than `isUniqueViolation`.
+ */
+export declare function isConstraintError(err: unknown): boolean;
