@@ -43,6 +43,25 @@ describe('#schemaSync idempotency regression', () => {
 		},
 	});
 
+	const tableName3 = `yass_schema_sync_unique_ft_${uuid().replace(/-/g, '')}`;
+	const indexUniqueFulltextName = 'idx_email_unique_fulltext';
+	const schemaDef3 = ({ types: t }) => ({
+		table: tableName3,
+		schema: {
+			id: t.idKey,
+			email: t.string,
+		},
+		options: {
+			indexes: {
+				[indexUniqueFulltextName]: {
+					unique: true,
+					fulltext: true,
+					cols: ['email'],
+				},
+			},
+		},
+	});
+
 	before(async () => {
 		const schema = YassORM.convertDefinition(schemaDef);
 		await syncSchemaToDb(schema);
@@ -102,11 +121,35 @@ describe('#schemaSync idempotency regression', () => {
 		expect(recreatedTargetIndexes).to.deep.equal([]);
 	});
 
+	it('should warn and skip indexes that combine unique and fulltext', async () => {
+		const warnings = [];
+		const origWarn = console.warn;
+		console.warn = (...args) => {
+			warnings.push(args.join(' '));
+			origWarn(...args);
+		};
+
+		try {
+			const schema3 = YassORM.convertDefinition(schemaDef3);
+			await syncSchemaToDb(schema3);
+		} finally {
+			console.warn = origWarn;
+		}
+
+		const matchingWarnings = warnings.filter((line) =>
+			line.includes(
+				`Skipping index '${indexUniqueFulltextName}' because unique FULLTEXT indexes are not supported`,
+			),
+		);
+		expect(matchingWarnings).to.have.lengthOf(1);
+	});
+
 	after(async () => {
 		// Clean up tables after regression test
 		const conn = await dbh({ ignoreCachedConnections: true });
 		await conn.pquery(`DROP TABLE IF EXISTS \`${tableName}\``);
 		await conn.pquery(`DROP TABLE IF EXISTS \`${tableName2}\``);
+		await conn.pquery(`DROP TABLE IF EXISTS \`${tableName3}\``);
 		await conn.end();
 	});
 });
