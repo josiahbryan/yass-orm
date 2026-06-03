@@ -7,6 +7,19 @@
 
 export type AnyRecord = Record<string, any>;
 
+export type GlobalChangeHookPayload = {
+	modelName: string;
+	id: string | number;
+	/** DB-level (deflated) values. ORM-managed keys (updatedAt, createdAt, nonce)
+	 *  and the id field are stripped. Empty when the write was a no-op. */
+	changedFields: Record<string, unknown>;
+	wasCreated: boolean;
+};
+
+export declare function registerGlobalChangeHook(
+	fn: (payload: GlobalChangeHookPayload) => void | Promise<void>,
+): () => void;
+
 export type JsonifyOptions = {
 	includeLinked?: boolean;
 	excludeLinked?: boolean;
