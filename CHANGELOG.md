@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.17] - 2026-06-10
+
+### Fixed
+
+- **Orphaned connection-pool leak in `MySQLDialect.createPool` when post-create setup fails.** `createPool` creates the mariadb pool and then, for PlanetScale `ONLY_FULL_GROUP_BY` mode (`disableFullGroupByPerSession`), runs `SET sql_mode=...`. That query leases a connection, so on a slow/contended server it can fail (e.g. `"retrieve connection from pool timeout after 20000ms"`) — and the error was thrown **without closing the pool that had just been created**. The pool's connections were never returned to the caller, never cached (`getDbh` only populates `connCache` at the very end, after this point), and never closed, so they lingered server-side until idle-timeout. Under load + `retryIfConnectionLost` retries this stacked up duplicate pools for the **same** key and exhausted the server's `max_connections` (root-caused on a CI bastion: a `SET`-query timeout on the first metrics write orphaned a ~140-connection pool, the retry created a second one → 281 live connections for one key, two `~connectionLimit`-sized pools crossing the 300 cap).
+  - Fix: wrap the post-create `SET sql_mode` in try/catch and `pool.end()` the pool before re-throwing. Safe because the pool is not yet returned/cached/shared — closing it has no in-flight-caller risk.
+  - This is the true root cause of the orphan that 2.0.16's `closeReplacedPool` only partially mitigated; the orphaned pool was created on the `createPool` setup-failure path, not the `ignoreCachedConnections` replacement path.
+- Regression test (`test/MySQLDialect.createPool-cleanup.test.js`) injects a failing setup query and asserts the pool is closed.
+
 ## [2.0.16] - 2026-06-09
 
 ### Fixed
