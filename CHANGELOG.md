@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.18] - 2026-06-10
+
+### Fixed
+
+- **errno 1170 on changing an indexed column to a TEXT/BLOB type** ("BLOB/TEXT column used in key specification without a key length"). When a column starts as an indexed `VARCHAR` (a prefix-less index, legal for varchar) and a later schema revision turns it into `t.text`/`t.object` (longtext), schema-sync emitted the `CHANGE COLUMN ... longtext` in the column-diff pass, which runs **before** index reconciliation — so the old prefix-less index was still attached when the column flipped to TEXT, and MySQL/Vitess rejected it. Root-caused on the CI bastion's PlanetScale sub-sync against `ai_dataset_items.sourceUrl` and `messages.channelMessageId` (hard-failed `schema-sync` with code 1 every tick).
+  - Fix: before applying the column alters, a pre-pass drops any **prefix-less** index that references a column being changed to a TEXT/BLOB type. The index pass then recreates any the schema still declares, now with the implicit `(255)` prefix length. Only triggers on the exact drift case (a column changing to text while a prefix-less index exists), so it is dormant on already-correct databases.
+  - Regression test: `test/schemaSync.textColumnReindex.test.js` establishes the indexed-varchar state, flips the column to `t.text`, and asserts zero sync errors + a prefixed index survives.
+- **Silent ADD/CHANGE-column drops now fail loud.** schema-sync's per-statement apply could resolve without error yet leave a column absent — observed on the CI bastion, where an `ADD COLUMN` "succeeded" (the parallel sync worker's connection never committed it under connection pressure) and schema-sync reported "completed successfully," only to surface one stage later as a confusing `Unknown column` precommit failure.
+  - Fix: after applying its column alters, `mysqlSchemaUpdate` re-reads the table and records a sync error for any column it just ADD/CHANGEd that is not actually present (`findMissingSchemaColumns`, now exported). Scoped to this run's changes so it never false-positives on pre-existing columns.
+  - Regression test: `test/schemaSync.missingColumnVerification.test.js` deterministically simulates the silent drop (a sabotaged `ADD` that runs a valid no-op) and asserts the missing column is reported as an error.
+
 ## [2.0.17] - 2026-06-10
 
 ### Fixed
