@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.16] - 2026-06-09
+
+### Fixed
+
+- **Orphaned connection-pool leak on the `retryIfConnectionLost` recovery path.** When a pooled connection died (`"socket has unexpectedly been closed"` / `"connection closed"`), `retryIfConnectionLost` recovered by requesting a fresh pool via `dbh({ ignoreCachedConnections: true })`, which overwrote `connCache[key]` and **silently abandoned the previous pool without closing it**. The old pool's open connections lingered server-side (`Sleep`/idle) until idle-timeout (~10 min), or indefinitely. Under load this stacked up multiple ~`connectionLimit`-sized pools for the *same* key and exhausted the server's `max_connections` (observed in CI: two ~160-connection pools for one key crossing a 300-connection MySQL cap → `ERROR 1040: Too many connections`, which then starved every later query).
+  - Fix is **opt-in** via a new `closeReplacedPool: true` option on `dbh()`: when set and an existing cached pool is being replaced, the old pool is closed (`.end()`, best-effort/guarded) once the new pool is wired up. `retryIfConnectionLost` now passes this flag on its recovery retry — the only path that knows the old pool is abandoned.
+  - Plain `dbh({ ignoreCachedConnections: true })` is **unchanged**: it still hands out a fresh handle WITHOUT closing the previous pool, because that form is also used to obtain an additional handle while existing references stay live (schema-sync, test setup). Closing there would yank the pool out from under live callers.
+- Added a regression test (`test/dbh.ignore-cached-closes-old.test.js`) covering both the opt-in close and the preserved no-close-by-default reuse contract.
+
 ## [2.0.13] - 2026-05-15
 
 ### Fixed
