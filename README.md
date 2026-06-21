@@ -212,6 +212,14 @@ const results = await Model.search({ name: 'test' });
 ## Recent changes
 
 ---
+- 2026-06-20 (2.0.19)
+  - (fix) **Schema-sync silent ADD/CHANGE column drop now self-heals on a fresh connection.** Under CI-bastion connection-pool churn an `ALTER ... ADD COLUMN` could resolve with no error yet never persist; the old post-sync guard re-read on the SAME (churning) connection, so it could pass on a stale view and the drop surfaced one stage later as a confusing "Unknown column" failure (the `ai_agent_memories.userEncodingSnapshot` incident, 2026-06-20: 51 dependent tests failed). `mysqlSchemaUpdate` now records each ADD/CHANGE's exact ALTER `sql` and, after applying, calls `verifyAndHealColumns` (exported) which re-reads on a FRESH connection, re-issues the ALTER for any column that did not persist, re-verifies, and records a loud, retryable error ONLY if it still will not land.
+    - Falls back to the shared sync handle when a fresh connection cannot be opened — pool exhaustion is the very condition this guards against, so silently skipping there would disable the check when it is needed most.
+    - Degrades to "could not verify" (no error) when a table cannot be re-read, so it never manufactures a false-positive schema-sync failure; the downstream check remains the backstop.
+  - (fix) **`dbh({ ignoreCachedConnections: true })` no longer poisons the shared connection cache.** Plain `ignoreCachedConnections` is documented to hand out an EXTRA throwaway handle *without* invalidating existing references, but the handle was still written into `connCache[key]` — so `end()`-ing it left every subsequent `dbh()` resolving to a closed pool ("pool is closed"). The cache is now only (re)written for normal calls, explicit `closeReplacedPool` replacements, and the first-create case — never for a plain extra-handle request. (`closeReplacedPool` behavior is unchanged.)
+  - (test) New regression coverage: `verifyAndHealColumns` heal-success / fail-loud / no-op in `test/schemaSync.missingColumnVerification.test.js`, and the cache-poisoning guard in `test/dbh.ignore-cached-closes-old.test.js`.
+
+---
 - 2026-05-15 (2.0.13)
   - (fix) **`dbh.create` / `dbh.createIgnore` / `dbh.upsert` default `idGenerator` is now a callable function.** Was `idGenerator = uuid()` (the *result* of calling uuid, i.e. a string) — should always have been `idGenerator = uuid` (the function reference). Latent bug never surfaced through `Model.create` because that path always passed its own generator; the new `dbh.createIgnore` used directly via `Model.withDbh` exposed it as `TypeError: idGenerator is not a function`. Includes a regression test.
 

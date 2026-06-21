@@ -8,6 +8,7 @@ const { dbh } = require('../lib/dbh');
 const {
 	syncSchemaToDb,
 	findMissingSchemaColumns,
+	verifyAndHealColumns,
 } = require('../lib/sync-to-db');
 const { MySQLDialect } = require('../lib/dialects/MySQLDialect');
 
@@ -115,5 +116,96 @@ describe('#schemaSync post-sync column verification', () => {
 		);
 		await conn.end();
 		expect(rows.length).to.equal(0);
+	});
+});
+
+// The per-table check above re-reads on the SAME (possibly mid-churn)
+// connection immediately after applying — so it can pass when the column is
+// present at that instant but is then LOST under bastion connection-pool
+// churn before the precommit tests run (the userEncodingSnapshot incident,
+// 2026-06-20: ADD logged, no error, per-table check passed, yet 51 tests
+// later failed with "Unknown column"). The contract verifyAndHealColumns adds:
+// a FINAL pass on a FRESH connection that re-issues any missing ADD/CHANGE and
+// only fails loud if it STILL will not persist — turning a silent drop into an
+// auto-heal, or (worst case) a loud, retryable schema-sync failure.
+describe('#schemaSync verifyAndHealColumns (fresh-connection auto-heal)', () => {
+	const tableName = `yass_heal_${uuid().replace(/-/g, '')}`;
+
+	const schema = ({ types: t }) => ({
+		table: tableName,
+		schema: { id: t.idKey, healMe: t.int },
+	});
+
+	before(function beforeHealSuite() {
+		if ((config.dialect || 'mysql') !== 'mysql') {
+			this.skip();
+		}
+	});
+
+	after(async () => {
+		const conn = await dbh({ ignoreCachedConnections: true });
+		await conn.pquery(`DROP TABLE IF EXISTS \`${tableName}\``);
+		await conn.end();
+	});
+
+	it('re-issues a missing ADD on a fresh connection and heals it (no error)', async () => {
+		// Sync the table WITH healMe, then drop it out-of-band to simulate the
+		// post-sync race where the column is lost after the per-table check.
+		await syncSchemaToDb(YassORM.convertDefinition(schema));
+		const c1 = await dbh({ ignoreCachedConnections: true });
+		await c1.pquery(`ALTER TABLE \`${tableName}\` DROP COLUMN healMe`);
+		await c1.end();
+
+		const { healed, errors } = await verifyAndHealColumns({
+			tableName,
+			changedColumns: [
+				{
+					col: 'healMe',
+					type: 'ADD',
+					sql: `ALTER TABLE \`${tableName}\` ADD \`healMe\` int`,
+				},
+			],
+		});
+
+		expect(
+			errors,
+			`unexpected errors: ${JSON.stringify(errors)}`,
+		).to.have.length(0);
+		expect(healed).to.include('healMe');
+
+		const c2 = await dbh({ ignoreCachedConnections: true });
+		const rows = await c2.pquery(
+			`SHOW COLUMNS FROM \`${tableName}\` WHERE Field = 'healMe'`,
+		);
+		await c2.end();
+		expect(rows.length, 'healMe should be restored').to.equal(1);
+	});
+
+	it('fails loud when the re-issued ALTER still does not persist', async () => {
+		const { healed, errors } = await verifyAndHealColumns({
+			tableName,
+			changedColumns: [
+				{ col: 'ghostHeal', type: 'ADD', sql: 'DO 1' }, // valid no-op, never adds
+			],
+		});
+
+		expect(healed).to.not.include('ghostHeal');
+		expect(errors).to.have.length.greaterThan(0);
+		expect(JSON.stringify(errors)).to.match(/ghostHeal/);
+	});
+
+	it('is a no-op (no errors) when all columns are present', async () => {
+		const { healed, errors } = await verifyAndHealColumns({
+			tableName,
+			changedColumns: [
+				{
+					col: 'healMe',
+					type: 'ADD',
+					sql: `ALTER TABLE \`${tableName}\` ADD \`healMe\` int`,
+				},
+			],
+		});
+		expect(errors).to.have.length(0);
+		expect(healed).to.have.length(0);
 	});
 });
