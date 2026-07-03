@@ -1,7 +1,13 @@
 /* eslint-disable no-unused-expressions */
 /* global it, describe */
 const { expect } = require('chai');
-const { singularize, toPascalCase } = require('../lib/generate-types');
+const {
+	singularize,
+	toPascalCase,
+	enumLiteralMembers,
+	mapFieldToTsType,
+	mapFieldToZodSchema,
+} = require('../lib/generate-types');
 
 describe('#generate-types singularization', () => {
 	describe('singularize()', () => {
@@ -66,6 +72,90 @@ describe('#generate-types singularization', () => {
 		it('should produce correct type names for snake_case tables', () => {
 			expect(toPascalCase(singularize('user_devices'))).to.equal('UserDevice');
 			expect(toPascalCase(singularize('chat_inboxes'))).to.equal('ChatInbox');
+		});
+	});
+});
+
+// A def may list `null` as an enum value so it becomes the column default:
+//   t.enum([null, 'a', 'b'], { defaultValue: null })
+// yass-orm uses the first value as the default; here that default is a genuine
+// SQL NULL. The generated TYPES must NOT turn that `null` into the string-literal
+// member `'null'` — every enum type is already `| null` for nullability, so a
+// `'null'` member is both redundant and a bug (it fails to satisfy consumers that
+// expect the real value union, and the Zod schema would validate the STRING
+// "null" as a legal value). See enumLiteralMembers().
+describe('#generate-types null-in-enum default marker', () => {
+	describe('enumLiteralMembers()', () => {
+		it('quotes plain values and appends nothing', () => {
+			expect(enumLiteralMembers(['a', 'b'])).to.deep.equal(["'a'", "'b'"]);
+		});
+
+		it("DROPS a leading null default-marker (not stringified to 'null')", () => {
+			expect(enumLiteralMembers([null, 'a', 'b'])).to.deep.equal([
+				"'a'",
+				"'b'",
+			]);
+		});
+
+		it('drops null/undefined anywhere in the list', () => {
+			expect(enumLiteralMembers(['a', null, 'b', undefined])).to.deep.equal([
+				"'a'",
+				"'b'",
+			]);
+		});
+
+		it('applies the optional format wrapper to each surviving literal', () => {
+			expect(
+				enumLiteralMembers([null, 'a', 'b'], (lit) => `| ${lit}`),
+			).to.deep.equal(["| 'a'", "| 'b'"]);
+		});
+	});
+
+	describe('mapFieldToTsType() — TS union', () => {
+		it("a null-default enum yields the value union + a single | null (no 'null' member)", () => {
+			const ts = mapFieldToTsType({
+				_type: 'enum',
+				options: [null, 'claude', 'codex'],
+			});
+			expect(ts).to.equal("'claude' | 'codex' | null");
+			expect(ts).to.not.contain("'null'");
+		});
+
+		it('a plain enum is unchanged', () => {
+			expect(mapFieldToTsType({ _type: 'enum', options: ['a', 'b'] })).to.equal(
+				"'a' | 'b' | null",
+			);
+		});
+
+		it('array-of-enums drops the null marker too', () => {
+			const ts = mapFieldToTsType({
+				isArray: true,
+				arrayItemType: 'enum',
+				arrayItemEnumOptions: [null, 'x', 'y'],
+			});
+			expect(ts).to.equal("Array<'x' | 'y' | null>");
+			expect(ts).to.not.contain("'null'");
+		});
+	});
+
+	describe('mapFieldToZodSchema() — Zod schema', () => {
+		it("a null-default enum yields z.enum([values]).nullable() (no 'null' member)", () => {
+			const zod = mapFieldToZodSchema({
+				_type: 'enum',
+				options: [null, 'claude', 'codex'],
+			});
+			expect(zod).to.equal("z.enum(['claude', 'codex']).nullable()");
+			expect(zod).to.not.contain("'null'");
+		});
+
+		it('array-of-enums drops the null marker too', () => {
+			const zod = mapFieldToZodSchema({
+				isArray: true,
+				arrayItemType: 'enum',
+				arrayItemEnumOptions: [null, 'x', 'y'],
+			});
+			expect(zod).to.equal("z.array(z.enum(['x', 'y']).nullable())");
+			expect(zod).to.not.contain("'null'");
 		});
 	});
 });

@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.20] - 2026-07-03
+
+### Fixed
+
+- **`null` as an enum default-marker no longer generates the bogus `'null'` string-literal type.** A model can make `NULL` the default of an enum column by listing `null` first in the values: `t.enum([null, 'claude', 'codex'], { defaultValue: null })` (yass-orm uses the first value as the column default; here that's a genuine SQL `NULL`, verified end-to-end). But the type/Zod generators interpolated that `null` naively (`` `'${v}'` ``), emitting the STRING-LITERAL member `'null'` — so the `.d.ts` typed the column as `'null' | 'claude' | 'codex' | null` and the `.zod.ts` as `z.enum(['null', 'claude', 'codex']).nullable()`. The spurious `'null'` member broke every consumer that assigns `entry.col` into a real-value union (observed: ~10 TS2322/TS2345 errors across a downstream app) and would let the Zod schema validate the literal string `"null"` as a legal value.
+  - Fix: a shared `enumLiteralMembers()` helper filters `null`/`undefined` out of the option list before quoting, applied at all three enum sites (inline `.d.ts` union, top-level multi-line `.d.ts` union, and `.zod.ts` `z.enum`). Every generated enum type already appends `| null` / `.nullable()`, so a `null` option was redundant there anyway — the union now stays the clean set of real values (+ the existing nullability). Runtime behavior is unchanged (the default was already a real NULL); this only corrects the generated types.
+  - Regression tests: `test/generate-types.test.js` covers `enumLiteralMembers()` (drops null/undefined anywhere, applies the format wrapper) plus `mapFieldToTsType()` / `mapFieldToZodSchema()` for both scalar and array-of-enum fields with a leading `null` marker, asserting no `'null'` member survives.
+
 ## [2.0.18] - 2026-06-10
 
 ### Fixed

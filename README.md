@@ -212,6 +212,11 @@ const results = await Model.search({ name: 'test' });
 ## Recent changes
 
 ---
+- 2026-07-03 (2.0.20)
+  - (fix) **`null` as an enum default-marker no longer generates a `'null'` string-literal type.** A model can make `NULL` the default of an enum column by listing `null` first: `t.enum([null, 'claude', 'codex'], { defaultValue: null })` (yass-orm uses the first value as the column default — here a real SQL `NULL`). The type/Zod generators interpolated that `null` naively into `` `'${v}'` ``, emitting the bogus member `'null'` (`.d.ts`: `'null' | 'claude' | 'codex' | null`; `.zod.ts`: `z.enum(['null', 'claude', 'codex']).nullable()`) — which broke every consumer assigning the column into a real-value union and would let Zod validate the literal string `"null"`. A shared `enumLiteralMembers()` helper now filters `null`/`undefined` out before quoting at all three enum sites; every enum type already appends `| null` / `.nullable()`, so the null option was redundant there. Runtime is unchanged (the default was already a real NULL) — only the generated types are corrected.
+  - (test) `test/generate-types.test.js` covers `enumLiteralMembers()` plus `mapFieldToTsType()` / `mapFieldToZodSchema()` for scalar and array-of-enum fields with a leading `null` marker (asserts no `'null'` member survives).
+
+---
 - 2026-06-20 (2.0.19)
   - (fix) **Schema-sync silent ADD/CHANGE column drop now self-heals on a fresh connection.** Under CI-bastion connection-pool churn an `ALTER ... ADD COLUMN` could resolve with no error yet never persist; the old post-sync guard re-read on the SAME (churning) connection, so it could pass on a stale view and the drop surfaced one stage later as a confusing "Unknown column" failure (the `ai_agent_memories.userEncodingSnapshot` incident, 2026-06-20: 51 dependent tests failed). `mysqlSchemaUpdate` now records each ADD/CHANGE's exact ALTER `sql` and, after applying, calls `verifyAndHealColumns` (exported) which re-reads on a FRESH connection, re-issues the ALTER for any column that did not persist, re-verifies, and records a loud, retryable error ONLY if it still will not land.
     - Falls back to the shared sync handle when a fresh connection cannot be opened — pool exhaustion is the very condition this guards against, so silently skipping there would disable the check when it is needed most.
