@@ -11,6 +11,17 @@ class MyModel extends loadDefinition('./defs/my-model') {
 expectType<Promise<MyModel | null>>(MyModel.get('id_123'));
 expectType<Promise<MyModel>>(MyModel.create({ id: 'id_123' }));
 expectType<Promise<MyModel>>(MyModel.findOrCreate({ id: 'id_123' }));
+expectType<Promise<MyModel>>(
+	MyModel.findOrCreate(
+		{ id: 'id_123' },
+		{},
+		{},
+		{
+			useTransaction: false,
+			transactionOptions: { isolationLevel: 'serializable' },
+		},
+	),
+);
 
 // search(): array vs single row based on limitOne flag
 expectType<Promise<MyModel[]>>(MyModel.search({ id: 'id_123' }));
@@ -21,6 +32,12 @@ expectType<Promise<number>>(
 	MyModel.withDbh(async (dbh, table) => {
 		expectType<string>(table);
 		await dbh.pquery(`SELECT 1 FROM ${table} LIMIT 1`);
+		expectType<Promise<number>>(
+			dbh.transaction(async (tx) => {
+				await tx.pquery('SELECT 1');
+				return 1;
+			}, { isolationLevel: 'repeatable read' }),
+		);
 		return 123;
 	}),
 );

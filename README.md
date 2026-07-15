@@ -4,6 +4,43 @@ Yet Another Super Simple ORM
 
 Why? Mainly for my personal use in a variety of projects.
 
+## Transactions
+
+Database handles support callback-based transactions across MySQL, MariaDB,
+PostgreSQL, and SQLite:
+
+```javascript
+await Model.withDbh((dbh) =>
+  dbh.transaction(
+    async (tx) => {
+      await tx.pquery('UPDATE accounts SET balance = balance - :amount WHERE id = :id', {
+        id: fromAccountId,
+        amount,
+      });
+
+      // roQuery stays on the same transaction connection; it never uses a replica.
+      const rows = await tx.roQuery('SELECT balance FROM accounts WHERE id = :id', {
+        id: fromAccountId,
+      });
+      return rows[0];
+    },
+    { isolationLevel: 'serializable', maxRetries: 2 },
+  ),
+);
+```
+
+The callback result is returned on commit. Thrown errors roll back and are
+re-thrown. Nested transactions use savepoints. Supported options include
+portable isolation levels, `readOnly`, PostgreSQL `deferrable`, SQLite
+`mode`, and opt-in conflict retries with `maxRetries`.
+
+`findOrCreate()` is transactional by default, using serializable isolation on
+MySQL/MariaDB and PostgreSQL and immediate mode on SQLite. Pass
+`{ useTransaction: false }` in its existing options position to opt out.
+
+See [docs/transactions.md](docs/transactions.md) for complete dialect
+semantics, retry guidance, `findOrCreate` signatures, and the API audit.
+
 ## SQLite Support
 
 As of 2026-02, yass-orm supports SQLite as an alternative to MySQL/MariaDB. This enables local development, testing, and lightweight deployments without a MySQL server.
@@ -210,6 +247,13 @@ const results = await Model.search({ name: 'test' });
 ---
 
 ## Recent changes
+
+---
+- 2026-07-15 (unreleased)
+  - (feat) **First-class transactions for MySQL/MariaDB, PostgreSQL, and SQLite.** `dbh.transaction(callback, options?)` pins the full dbh helper surface to one physical connection, commits callback success, rolls back callback failure, returns the callback value, and uses savepoints for nested transactions. `tx.roQuery` is pinned to the transaction and never routes to a read replica.
+  - (feat) Portable isolation options with strict per-dialect validation, read-only transactions, PostgreSQL deferrable transactions, SQLite deferred/immediate/exclusive modes with connection-state restoration, and opt-in retry of recognized serialization/deadlock/busy failures.
+  - (fix) **`findOrCreate()` is transactional by default** with safe dialect defaults and two conflict retries. Its existing raw-handle options object and new model-level fourth options argument accept `{ useTransaction: false }`; callers can override defaults with `transactionOptions`. A failed `patchIf` now rolls back a row created earlier in the operation.
+  - (docs/test) Added `docs/transactions.md`, TypeScript declarations/generator coverage, dialect lifecycle tests, and SQLite integration coverage for commit, rollback, pinned `roQuery`, isolation restoration, savepoints, retries, and `findOrCreate` atomicity/opt-out.
 
 ---
 - 2026-07-03 (2.0.20)

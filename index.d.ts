@@ -85,6 +85,32 @@ export type FinderResult<Row = AnyRecord> = {
 	totalSetManually?: boolean;
 };
 
+export type TransactionIsolationLevel =
+	| 'read uncommitted'
+	| 'read committed'
+	| 'repeatable read'
+	| 'serializable';
+
+export type TransactionOptions = {
+	isolationLevel?: TransactionIsolationLevel;
+	/** SQLite-specific lock acquisition mode. */
+	mode?: 'deferred' | 'immediate' | 'exclusive';
+	readOnly?: boolean;
+	/** Postgres only; requires serializable + readOnly. */
+	deferrable?: boolean;
+	/** Retry serialization, deadlock, busy, and lock failures. Defaults to 0. */
+	maxRetries?: number;
+};
+
+export type FindOrCreateOptions = {
+	allowBlankIdOnCreate?: boolean;
+	idGenerator?: () => string;
+	silenceErrors?: boolean;
+	/** Defaults to true. Set false to retain the legacy non-transactional path. */
+	useTransaction?: boolean;
+	transactionOptions?: TransactionOptions;
+};
+
 /**
  * DB handle (connection/pool) returned by `dbh()` and passed into retry/withDbh callbacks.
  * This is intentionally minimal and loosely typed.
@@ -108,6 +134,11 @@ export type DbHandle = {
 		opts?: any,
 		...args: any[]
 	) => Promise<T[]>;
+	/** Run work atomically on one physical connection; nested calls use savepoints. */
+	transaction: <T>(
+		callback: (tx: DbHandle) => Promise<T> | T,
+		options?: TransactionOptions,
+	) => Promise<T>;
 	search: (
 		tableAndIdField: string,
 		fields?: AnyRecord,
@@ -143,11 +174,7 @@ export type DbHandle = {
 		fields: AnyRecord,
 		patchIf?: AnyRecord,
 		patchIfFalsey?: AnyRecord,
-		opts?: {
-			allowBlankIdOnCreate?: boolean;
-			idGenerator?: () => string;
-			silenceErrors?: boolean;
-		},
+		opts?: FindOrCreateOptions,
 	) => Promise<any>;
 	/**
 	 * Atomic at-most-once insert. Uses dialect-specific `INSERT IGNORE`
@@ -392,7 +419,7 @@ export interface DatabaseObjectStatic<
 		fields: Partial<TSchema>,
 		patchIf?: Partial<TSchema>,
 		patchIfFalsey?: Partial<TSchema>,
-		...extraArgs: any[]
+		options?: Pick<FindOrCreateOptions, 'useTransaction' | 'transactionOptions'>,
 	): Promise<TInstance>;
 
 	/** Inflate raw data to typed instance */
