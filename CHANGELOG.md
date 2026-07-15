@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.21] - 2026-07-15
+
+### Added
+
+- **First-class transactions for MySQL/MariaDB, PostgreSQL, and SQLite.** `dbh.transaction(callback, options?)` pins the full dbh helper surface—including `pquery` and `roQuery`—to one physical connection, commits successful callbacks, rolls back failures, returns callback values, and uses savepoints for nested transactions.
+- Portable isolation-level validation, read-only transactions, PostgreSQL deferrable transactions, SQLite deferred/immediate/exclusive modes with connection-state restoration, and opt-in retries for recognized serialization, deadlock, busy, and lock failures.
+
+### Changed
+
+- **`findOrCreate()` is transactional by default.** MySQL/MariaDB and PostgreSQL use serializable isolation; SQLite uses immediate mode. Each path retries recognized transaction conflicts up to twice. Callers can opt out with `{ useTransaction: false }` or supply `transactionOptions`.
+- SQLite queues concurrent transactions and ordinary parent-handle queries around its single connection so unrelated async work cannot accidentally join an active transaction.
+
+### Fixed
+
+- A failed `patchIf` step in `findOrCreate()` now rolls back a row created earlier in the same operation.
+- Concurrent `findOrCreate()` calls now retain per-result action and patch metadata for model hooks instead of relying solely on shared mutable function properties.
+
 ## [2.0.20] - 2026-07-03
 
 ### Fixed

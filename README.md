@@ -249,7 +249,7 @@ const results = await Model.search({ name: 'test' });
 ## Recent changes
 
 ---
-- 2026-07-15 (unreleased)
+- 2026-07-15 (2.0.21)
   - (feat) **First-class transactions for MySQL/MariaDB, PostgreSQL, and SQLite.** `dbh.transaction(callback, options?)` pins the full dbh helper surface to one physical connection, commits callback success, rolls back callback failure, returns the callback value, and uses savepoints for nested transactions. `tx.roQuery` is pinned to the transaction and never routes to a read replica.
   - (feat) Portable isolation options with strict per-dialect validation, read-only transactions, PostgreSQL deferrable transactions, SQLite deferred/immediate/exclusive modes with connection-state restoration, and opt-in retry of recognized serialization/deadlock/busy failures.
   - (fix) **`findOrCreate()` is transactional by default** with safe dialect defaults and two conflict retries. Its existing raw-handle options object and new model-level fourth options argument accept `{ useTransaction: false }`; callers can override defaults with `transactionOptions`. A failed `patchIf` now rolls back a row created earlier in the operation.
