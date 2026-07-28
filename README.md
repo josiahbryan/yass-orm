@@ -249,6 +249,11 @@ const results = await Model.search({ name: 'test' });
 ## Recent changes
 
 ---
+- 2026-07-27 (unreleased)
+  - (security) **Patched HIGH `brace-expansion` advisory [GHSA-3jxr-9vmj-r5cp](https://github.com/advisories/GHSA-3jxr-9vmj-r5cp) / CVE-2026-13149** (DoS via exponential-time expansion of consecutive non-expanding `{}` groups). The package was present transitively at `1.1.12` under `minimatch@3.1.2` (from `eslint-plugin-import`) and `minimatch@4.2.1` (from `mocha`); an npm `overrides` pin of `brace-expansion: ^1.1.16` lifts it to `1.1.16`, which satisfies both parents' declared `^1.1.7` range — no parent upgrade required. Dev-dependency only, not reachable from runtime code. Also clears MEDIUM [GHSA-f886-m6hf-6m8v](https://github.com/advisories/GHSA-f886-m6hf-6m8v).
+  - (note) `npm audit` still flags [GHSA-mh99-v99m-4gvg](https://github.com/advisories/GHSA-mh99-v99m-4gvg) (HIGH) on `brace-expansion`: it affects `<= 5.0.7` and is fixed **only** in `5.0.8`, with no 1.x backport. Overriding to `brace-expansion@5` would break `minimatch@3/4`, whose `require('brace-expansion')(...)` call is incompatible with 5.x's named-`expand` CommonJS export (and 5.x requires node `20 || >=22`). See CHANGELOG for the full rationale.
+
+---
 - 2026-07-15 (2.0.21)
   - (feat) **First-class transactions for MySQL/MariaDB, PostgreSQL, and SQLite.** `dbh.transaction(callback, options?)` pins the full dbh helper surface to one physical connection, commits callback success, rolls back callback failure, returns the callback value, and uses savepoints for nested transactions. `tx.roQuery` is pinned to the transaction and never routes to a read replica.
   - (feat) Portable isolation options with strict per-dialect validation, read-only transactions, PostgreSQL deferrable transactions, SQLite deferred/immediate/exclusive modes with connection-state restoration, and opt-in retry of recognized serialization/deadlock/busy failures.

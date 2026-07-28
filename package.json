@@ -32,6 +32,9 @@
       "pre-commit": "npm run precommit"
     }
   },
+  "overrides": {
+    "brace-expansion": "^1.1.16"
+  },
   "dependencies": {
     "babel-eslint": "^10.1.0",
     "better-sqlite3": "^12.6.2",

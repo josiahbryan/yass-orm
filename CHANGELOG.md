@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **Patched the HIGH-severity `brace-expansion` ReDoS/DoS advisory [GHSA-3jxr-9vmj-r5cp](https://github.com/advisories/GHSA-3jxr-9vmj-r5cp) (CVE-2026-13149)** — exponential-time expansion of consecutive non-expanding `{}` groups. `brace-expansion` was pulled in transitively at **1.1.12** by `minimatch@3.1.2` (via `eslint-plugin-import`) and `minimatch@4.2.1` (via `mocha`), both of which declare `brace-expansion: ^1.1.7`. An npm `overrides` entry pins it to **^1.1.16** (the maintainer's `maintenance-v1` backport and the exact version GitHub names as patched), which resolves to **1.1.16** — in range for both parents, so no parent bump was needed. This also clears the MEDIUM [GHSA-f886-m6hf-6m8v](https://github.com/advisories/GHSA-f886-m6hf-6m8v) (patched in 1.1.13).
+  - Dev-dependency-only: `brace-expansion` is not reachable from any runtime code path in this package.
+  - **Known residual:** [GHSA-mh99-v99m-4gvg](https://github.com/advisories/GHSA-mh99-v99m-4gvg) (HIGH, unbounded-expansion OOM) affects `<= 5.0.7` and is patched **only in 5.0.8** — there is no 1.x backport, so `npm audit` still reports it. Taking it would require overriding to `brace-expansion@5`, which is not viable here: 5.x is a tshy ESM/CJS build whose CommonJS entry exports a *named* `expand` (`exports.expand = expand`) rather than `module.exports = expand`, so `minimatch@3/4`'s `require('brace-expansion')(...)` would throw at runtime. It also raises the engine floor to `node 20 || >=22`. The alternative — `npm audit fix --force` — performs a breaking major bump to `mocha@11`. Neither is warranted for a dev-only dependency; revisit when `minimatch` (or `mocha`) ships a release on a patched `brace-expansion` line.
+
 ## [2.0.21] - 2026-07-15
 
 ### Added
