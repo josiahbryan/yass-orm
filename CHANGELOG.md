@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Opt-in canonical link-column collation + resumable migration batch (default OFF, zero behavior change).** Root fix for the `char(36)` link-vs-uuid-PK collation mismatch that makes cross-table JOINs on linked/uuid columns non-sargable: link/uuid columns previously inherited the table-default collation (`utf8mb4_0900_ai_ci` / `_general_ci`) while the uuid PK is pinned to `utf8mb4_bin`, so a join between them can't use the index and falls back to a full scan.
+  - New `lib/uuid-collation.js` holds `CANONICAL_UUID_COLLATION` (`utf8mb4_bin`) as the single source of truth; `MySQLDialect.getUuidPrimaryKeyAttrs` now reads it, so the PK and any opt-in link columns match by construction.
+  - `def-to-schema`: `resolveLinkColumnCollation()` gives `char(36)` `t.linked`/`t.uuid` columns the canonical collation only when `config.linkColumnCollation` is enabled (`true` → `utf8mb4_bin`, or an explicit string). Off (the default) emits no collation, exactly as before. Non-`char(36)`/int links are never affected; SQLite/Postgres ignore collation entirely.
+  - `sync-to-db`: an inverted guard (`shouldDeferCollationOnlyChange`) *reports* but does **not** auto-apply the bin-vs-inherited-default canonicalization on existing columns unless `config.migrateLinkCollation` is also set, so an ordinary `schema-sync` can never trigger a mass table rebuild by surprise.
+  - Migration batch tooling (build + unit-tested only; not run against any real database in this repo): `lib/migrations/link-collation.js` provides a read-only GENERATOR that queries `information_schema` for mismatched `char(36)` columns and emits an ordered manifest of per-table `ALTER`s (DDL sourced from the dialect, not hand-authored), plus a resumable RUNNER that applies one table at a time with dry-run, disk precheck, verify-after, idempotency, `stopAfter` batching, rate-limiting, and gh-ost/pt-osc online-DDL support for large tables. `bin/migrate-link-collation` is the CLI entry point (read-only by default; `--run` to apply).
+  - 28 new tests cover the flag OFF/ON paths, PK==link-column collation by construction, generator mismatch detection, and the runner's resumable/idempotent/dry-run/verify-halt/`stopAfter`/disk-check behavior. Existing suite (302 no-DB tests) remains green.
+
 ### Security
 
 - **Patched the HIGH-severity `brace-expansion` ReDoS/DoS advisory [GHSA-3jxr-9vmj-r5cp](https://github.com/advisories/GHSA-3jxr-9vmj-r5cp) (CVE-2026-13149)** — exponential-time expansion of consecutive non-expanding `{}` groups. `brace-expansion` was pulled in transitively at **1.1.12** by `minimatch@3.1.2` (via `eslint-plugin-import`) and `minimatch@4.2.1` (via `mocha`), both of which declare `brace-expansion: ^1.1.7`. An npm `overrides` entry pins it to **^1.1.16** (the maintainer's `maintenance-v1` backport and the exact version GitHub names as patched), which resolves to **1.1.16** — in range for both parents, so no parent bump was needed. This also clears the MEDIUM [GHSA-f886-m6hf-6m8v](https://github.com/advisories/GHSA-f886-m6hf-6m8v) (patched in 1.1.13).
