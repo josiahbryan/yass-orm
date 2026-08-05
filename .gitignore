@@ -108,3 +108,7 @@ dist
 # TernJS port file
 .tern-port
 test-concurrent-pool.js
+
+# link-collation migration runtime artifacts
+.link-collation-state.json
+link-collation-manifest.json

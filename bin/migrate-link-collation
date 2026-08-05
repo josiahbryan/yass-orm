@@ -1,0 +1,186 @@
+#!/usr/bin/env node
+/* eslint-disable no-console */
+/**
+ * CLI for the link-collation migration (canonicalize existing char(36) link/uuid
+ * columns to the uuid PK collation, utf8mb4_bin).
+ *
+ * READ-ONLY by default. It will NOT mutate the database unless you pass --run.
+ *
+ * Usage:
+ *   # 1) See what would change (read-only): counts, per-table plan, size/time est.
+ *   bin/migrate-link-collation --generate
+ *   bin/migrate-link-collation --dry-run
+ *
+ *   # 2) Write the manifest to a file for review / scheduling.
+ *   bin/migrate-link-collation --generate --out link-collation-manifest.json
+ *
+ *   # 3) Execute for real (resumable). Safe to stop (Ctrl-C) and re-run: it resumes.
+ *   bin/migrate-link-collation --run --state .link-collation-state.json
+ *
+ *   # Batch overnight: apply at most N tables per run, sleep between them.
+ *   bin/migrate-link-collation --run --stop-after 25 --rate-limit-ms 2000
+ *
+ * Flags:
+ *   --generate            Emit the manifest (read-only) and exit.
+ *   --dry-run             Generate + print the execution plan; make NO changes.
+ *   --run                 Actually apply (requires this explicit flag).
+ *   --out <file>          Write the manifest JSON to <file>.
+ *   --state <file>        Resumable state file (default .link-collation-state.json).
+ *   --target <collation>  Target collation (default utf8mb4_bin).
+ *   --stop-after <N>      Apply at most N columns this run (batching).
+ *   --rate-limit-ms <ms>  Sleep between applied columns.
+ *   --online-tool <t>     gh-ost | pt-osc  (for big tables; default gh-ost).
+ *   --big-rows <N>        Row count above which a table uses online DDL.
+ *   --continue-on-error   Keep going past a failed column (default: halt).
+ */
+const fs = require('fs');
+const cp = require('child_process');
+const config = require('../lib/config');
+const { dbh: factory, getDialect } = require('../lib/dbh');
+const {
+	generateLinkCollationManifest,
+	runLinkCollationMigration,
+	createFileStateStore,
+	humanBytes,
+	CANONICAL_UUID_COLLATION,
+	DEFAULT_BIG_TABLE_ROW_THRESHOLD,
+} = require('../lib/migrations/link-collation');
+
+function arg(name, def) {
+	const i = process.argv.indexOf(`--${name}`);
+	if (i === -1) return def;
+	const next = process.argv[i + 1];
+	if (!next || next.startsWith('--')) return true; // boolean flag
+	return next;
+}
+
+const sleep = (ms) =>
+	new Promise((resolve) => {
+		setTimeout(resolve, ms);
+	});
+
+async function main() {
+	const doGenerateOnly = arg('generate', false);
+	const doRun = arg('run', false);
+	const dryRun = arg('dry-run', false) || (!doRun && !doGenerateOnly);
+	const outFile = arg('out', null);
+	const stateFile = arg('state', '.link-collation-state.json');
+	const targetCollation = arg('target', CANONICAL_UUID_COLLATION);
+	const stopAfter = Number(arg('stop-after', Infinity));
+	const rateLimitMs = Number(arg('rate-limit-ms', 0));
+	const onlineTool = arg('online-tool', 'gh-ost');
+	const bigRows = Number(arg('big-rows', DEFAULT_BIG_TABLE_ROW_THRESHOLD));
+	const continueOnError = arg('continue-on-error', false);
+
+	const database = config.schema;
+	const dialect = getDialect(config.dialect || 'mysql');
+	const handle = await factory();
+
+	console.log(
+		`[link-collation] scanning schema "${database}" for char(36) columns != ${targetCollation} ...`,
+	);
+	const manifest = await generateLinkCollationManifest({
+		handle,
+		database,
+		dialect,
+		targetCollation,
+		bigTableRowThreshold: bigRows,
+		onlineTool,
+	});
+
+	console.log(
+		`[link-collation] found ${manifest.summary.columns} column(s) across ` +
+			`${manifest.summary.tables} table(s); ${manifest.summary.bigTables} big table(s); ` +
+			`~${humanBytes(manifest.summary.totalBytes)}, est ~${
+				manifest.summary.estSeconds
+			}s rebuild total.`,
+	);
+
+	if (outFile) {
+		fs.writeFileSync(outFile, JSON.stringify(manifest, null, 2), 'utf8');
+		console.log(`[link-collation] manifest written to ${outFile}`);
+	}
+
+	if (doGenerateOnly && !doRun && !arg('dry-run', false)) {
+		process.exit(0);
+	}
+
+	// verify() reads the live collation for the column from information_schema.
+	const verify = async ({ item }) => {
+		const rows = await handle.query(
+			`SELECT COLLATION_NAME AS c FROM information_schema.COLUMNS
+			  WHERE TABLE_SCHEMA=? AND TABLE_NAME=? AND COLUMN_NAME=?`,
+			[database, item.table, item.column],
+		);
+		return rows && rows[0] ? rows[0].c : null;
+	};
+
+	const execute = async ({ item }) => {
+		await handle.pquery(item.alterSql);
+	};
+
+	const executeOnline = async ({ item }) => {
+		console.log(`[link-collation] online DDL: ${item.onlineCommand}`);
+		cp.execSync(item.onlineCommand, { stdio: 'inherit' });
+	};
+
+	const checkDiskSpace = () => {
+		try {
+			// Node 18.15+: fs.statfsSync
+			if (typeof fs.statfsSync === 'function') {
+				const s = fs.statfsSync(process.cwd());
+				return s.bavail * s.bsize;
+			}
+		} catch (e) {
+			/* ignore */
+		}
+		return Infinity; // unknown -> don't block
+	};
+
+	if (dryRun) {
+		console.log(`[link-collation] DRY RUN -- no changes will be made.\n`);
+	} else {
+		console.log(
+			`\n[link-collation] *** LIVE RUN *** applying to "${database}". ` +
+				`State: ${stateFile}. Safe to Ctrl-C and resume.\n`,
+		);
+	}
+
+	const report = await runLinkCollationMigration({
+		manifest,
+		stateStore: createFileStateStore(stateFile),
+		execute,
+		executeOnline,
+		verify,
+		dryRun,
+		checkDiskSpace,
+		sleep,
+		rateLimitMs,
+		stopAfter,
+		continueOnError,
+	});
+
+	if (dryRun) {
+		report.plan.forEach((p) => {
+			console.log(
+				`  [${p.strategy}] ${p.id}  (~${p.estHuman}, ~${p.estSeconds}s)\n      ${p.sql}`,
+			);
+		});
+	}
+
+	console.log(
+		`\n[link-collation] done. applied=${report.applied.length} ` +
+			`skipped=${report.skipped.length} errors=${report.errors.length} ` +
+			`remaining=${report.remaining} stoppedEarly=${report.stoppedEarly}`,
+	);
+	if (report.errors.length) {
+		report.errors.forEach((e) => console.error(`  ERROR ${e.id}: ${e.error}`));
+		process.exit(1);
+	}
+	process.exit(0);
+}
+
+main().catch((ex) => {
+	console.error('[link-collation] fatal:', ex);
+	process.exit(1);
+});
