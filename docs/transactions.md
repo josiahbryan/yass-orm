@@ -146,6 +146,98 @@ find-or-create correctness, the identifying columns should still have a
 database `UNIQUE` constraint. Prefer `createIgnore()` or `upsert()` when the
 desired behavior maps directly to a known conflict key.
 
+## Model-level binding (`{ tx }`)
+
+Added 2026-08-05. The transaction handle can be passed straight to model
+methods, so multi-model writes are atomic without hand-marshalling
+`deflateValues`, id generation, hooks, and inflation at the call site.
+
+```javascript
+await BCTask.withDbh((dbh) =>
+	dbh.transaction(
+		async (tx) => {
+			const task = await BCTask.create({ title: 'Relay audit result' }, { tx });
+			const work = await BCTask.create({ title: 'Scope the email CLI' }, { tx });
+			await BCTaskLink.create({ fromTask: work, toTask: task }, { tx });
+			await task.patch({ status: 'in_progress' }, { tx });
+			return BCTask.get(task.id, { tx });
+		},
+		{ isolationLevel: 'serializable', maxRetries: 2 },
+	),
+);
+```
+
+| Method | Signature |
+|---|---|
+| `static create` | `create(data, { tx })` |
+| `instance.patch` | `patch(data, { tx })` |
+| `instance.remove` | `remove({ tx })` |
+| `static get` | `get(id, { allowCached, span, tx })` |
+| `static search` | `search(fields, limitOne, promisePoolMapConfig, { tx })` |
+| `static searchOne` | `searchOne(fields, promisePoolMapConfig, { tx })` |
+| `static findOrCreate` | `findOrCreate(fields, patchIf, patchIfFalsey, { tx })` |
+
+`search`/`searchOne` also read `tx` off the `promisePoolMapConfig` object, so
+`searchOne(fields, { tx })` and `search(fields, false, { tx })` work as written;
+the explicit trailing options argument wins if both are supplied.
+
+There is deliberately **no** ambient/`AsyncLocalStorage` transaction context. An
+implicit context would make an unrelated call deep in a stack silently join a
+transaction it knows nothing about, and would let hooks or event handlers that
+outlive the callback inherit a dead handle. `{ tx }` is explicit.
+
+### Why reads and inflation must join
+
+An uncommitted row is invisible to every other connection, so `get`/`search`
+must run on `tx` to read the transaction's own writes — the same reason
+`tx.roQuery` refuses to route to a read replica.
+
+Inflation matters just as much and is less obvious. `create` returns
+`inflate(row)`, and `inflate` → `inflateValues` → `_resolvedLinkedModel` →
+`get` is **a database read**. If `tx` stopped at `dbh.create`, linked fields
+would resolve on a different pooled connection that cannot see the uncommitted
+rows, and the returned instance would carry silently `null` links while the
+database rows were correct. `tx` therefore threads the entire chain.
+
+### Why retry is disabled inside a transaction
+
+Outside a transaction, model writes are wrapped in `retryIfConnectionLost`.
+Inside one that is actively dangerous: if the pinned connection drops, the
+transaction is dead, and retrying that single statement on a fresh connection
+writes it **outside** the transaction — committed and unrollbackable — while the
+surrounding transaction rolls back. When `tx` is supplied, `DatabaseObject._runOn`
+calls it directly with no retry wrapper. Retry belongs to
+`dbh.transaction({ maxRetries })`, which replays the whole callback.
+
+### `findOrCreate` joins rather than nesting
+
+`Model.findOrCreate(..., { tx })` runs on the caller's handle. `dbh.findOrCreate`
+detects `_transactionContext` and executes inline, so no savepoint is opened and
+a caller-level rollback undoes what it created. `tx` takes precedence over
+`useTransaction` / `transactionOptions`; supplying both logs a warning.
+
+### Hooks
+
+`afterCreateHook`/`afterChangeHook` receive `{ tx }` (and `{ wasCreated, tx }` on
+the `findOrCreate` path), and global change hook payloads carry `tx`. Hooks still
+fire before commit, unchanged. A hook that writes to the database without
+forwarding `tx` writes outside the transaction, and those writes survive a
+rollback — the signature is backward compatible, the meaning is not.
+
+### Known limitation: the identity cache
+
+`inflate` populates the per-class instance cache by id. Rows created inside a
+transaction that later rolls back leave cached instances for ids that no longer
+exist. This is pre-existing behavior on the already-transactional `findOrCreate`
+path and is unchanged here; call `Model.clearCache()` after a rollback if you
+rely on cached reads.
+
+### Not converted
+
+`find()`, `fromSql()`, `patchIf()`, `patchWithNonceRetry()`, `queryCallback()`,
+`withDbh()`, and `reallyDelete()` do not accept `{ tx }`. Use `withDbh` or the
+raw `tx` helpers for those inside a transaction.
+
 ## API audit
 
 The other multi-step dbh methods were reviewed for default transaction use:
@@ -173,6 +265,12 @@ a third `patchIf` step.
 - `lib/dbh.js` supplies the inherited helper surface and automatic
   `findOrCreate` integration.
 - `index.d.ts` and generated model declarations expose the new options.
+- `lib/obj.js` owns the model-level `{ tx }` surface via `DatabaseObject._runOn`
+  and threads `tx` through `inflate`/`inflateValues`/`_resolvedLinkedModel`.
+  Red-green coverage is in `test/obj.transaction.test.js` (live MySQL/MariaDB;
+  SQLite is unsuitable there because it queues non-transaction parent-handle
+  queries behind an active transaction, so an un-joined read would hang rather
+  than return the wrong answer).
 - Red-green coverage lives in `test/dbh.transaction.test.js`, lifecycle unit
   tests, live MySQL/MariaDB integration tests, and dialect tests. PostgreSQL's
   leased-client behavior is tested against a `pg`-compatible client wrapper;

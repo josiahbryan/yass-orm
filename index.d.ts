@@ -31,7 +31,25 @@ export type FindOptions = {
 	allowCached?: boolean;
 	/** Debug/trace span object (opaque). */
 	span?: any;
+	/**
+	 * Transaction handle from `dbh.transaction((tx) => ...)`. When supplied, the
+	 * read runs on that pinned connection so it can see the transaction's own
+	 * uncommitted writes, and the lost-connection retry wrapper is bypassed.
+	 */
+	tx?: DbHandle;
 	[key: string]: any;
+};
+
+/**
+ * Options carrying a transaction handle, accepted by the model-level write and
+ * read methods (`create`, `patch`, `remove`, `search`, `searchOne`).
+ *
+ * Passing `tx` runs the operation - including linked-field inflation - on the
+ * transaction's pinned connection, and disables the per-statement
+ * lost-connection retry (retry belongs to `dbh.transaction({ maxRetries })`).
+ */
+export type TxOptions = {
+	tx?: DbHandle;
 };
 
 export type PatchWithNonceRetryOptions = {
@@ -109,6 +127,11 @@ export type FindOrCreateOptions = {
 	/** Defaults to true. Set false to retain the legacy non-transactional path. */
 	useTransaction?: boolean;
 	transactionOptions?: TransactionOptions;
+	/**
+	 * Join an existing transaction rather than opening one. Takes precedence over
+	 * `useTransaction`/`transactionOptions`.
+	 */
+	tx?: DbHandle;
 };
 
 /**
@@ -254,7 +277,7 @@ export interface DatabaseObjectInstanceMethods {
 	/**
 	 * Patch fields in DB and refresh this instance.
 	 */
-	patch(data?: AnyRecord): Promise<this>;
+	patch(data?: AnyRecord, options?: TxOptions): Promise<this>;
 
 	/**
 	 * Patch with nonce retry behavior (ERR_NONCE retry loop).
@@ -267,7 +290,7 @@ export interface DatabaseObjectInstanceMethods {
 	/**
 	 * Sets isDeleted=true (requires schema to have isDeleted field).
 	 */
-	remove(): Promise<this>;
+	remove(options?: TxOptions): Promise<this>;
 
 	/**
 	 * Actually DELETEs from DB (dangerous).
@@ -393,33 +416,39 @@ export interface DatabaseObjectStatic<
 	search(
 		fields?: AnyRecord,
 		limitOne?: false,
-		promisePoolMapConfig?: PromisePoolMapConfig,
+		promisePoolMapConfig?: PromisePoolMapConfig & TxOptions,
+		options?: TxOptions,
 	): Promise<Array<TInstance>>;
 
 	search(
 		fields: AnyRecord,
 		limitOne: true,
-		promisePoolMapConfig?: PromisePoolMapConfig,
+		promisePoolMapConfig?: PromisePoolMapConfig & TxOptions,
+		options?: TxOptions,
 	): Promise<TInstance | null>;
 
 	/** Search for a single record matching query */
 	searchOne(
 		fields?: AnyRecord,
-		promisePoolMapConfig?: PromisePoolMapConfig,
+		promisePoolMapConfig?: PromisePoolMapConfig & TxOptions,
+		options?: TxOptions,
 	): Promise<TInstance | null>;
 
 	/** Get a record by ID */
 	get(id: string, opts?: FindOptions): Promise<TInstance | null>;
 
 	/** Create a new record */
-	create(data: Partial<TSchema>): Promise<TInstance>;
+	create(data: Partial<TSchema>, options?: TxOptions): Promise<TInstance>;
 
 	/** Find existing record or create new one */
 	findOrCreate(
 		fields: Partial<TSchema>,
 		patchIf?: Partial<TSchema>,
 		patchIfFalsey?: Partial<TSchema>,
-		options?: Pick<FindOrCreateOptions, 'useTransaction' | 'transactionOptions'>,
+		options?: Pick<
+			FindOrCreateOptions,
+			'useTransaction' | 'transactionOptions' | 'tx'
+		>,
 	): Promise<TInstance>;
 
 	/** Inflate raw data to typed instance */
@@ -427,12 +456,14 @@ export interface DatabaseObjectStatic<
 		data: AnyRecord,
 		span?: any,
 		promisePoolMapConfig?: PromisePoolMapConfig,
+		options?: TxOptions,
 	): Promise<TInstance | null>;
 
 	inflateValues(
 		data: AnyRecord,
 		span?: any,
 		promisePoolMapConfig?: PromisePoolMapConfig,
+		options?: TxOptions,
 	): Promise<AnyRecord>;
 
 	deflateValues(object?: AnyRecord, noUndefined?: boolean): AnyRecord;
@@ -490,7 +521,7 @@ export declare class DatabaseObject {
 	/**
 	 * Patch fields in DB and refresh this instance.
 	 */
-	patch(data?: AnyRecord): Promise<this>;
+	patch(data?: AnyRecord, options?: TxOptions): Promise<this>;
 
 	/**
 	 * Patch with nonce retry behavior (ERR_NONCE retry loop).
@@ -503,7 +534,7 @@ export declare class DatabaseObject {
 	/**
 	 * Sets isDeleted=true (requires schema to have isDeleted field).
 	 */
-	remove(): Promise<this>;
+	remove(options?: TxOptions): Promise<this>;
 
 	/**
 	 * Actually DELETEs from DB (dangerous).
@@ -585,20 +616,23 @@ export declare class DatabaseObject {
 		this: T,
 		fields?: AnyRecord,
 		limitOne?: false,
-		promisePoolMapConfig?: PromisePoolMapConfig,
+		promisePoolMapConfig?: PromisePoolMapConfig & TxOptions,
+		options?: TxOptions,
 	): Promise<Array<InstanceType<T>>>;
 
 	static search<T extends typeof DatabaseObject>(
 		this: T,
 		fields: AnyRecord,
 		limitOne: true,
-		promisePoolMapConfig?: PromisePoolMapConfig,
+		promisePoolMapConfig?: PromisePoolMapConfig & TxOptions,
+		options?: TxOptions,
 	): Promise<InstanceType<T> | null>;
 
 	static searchOne<T extends typeof DatabaseObject>(
 		this: T,
 		fields?: AnyRecord,
-		promisePoolMapConfig?: PromisePoolMapConfig,
+		promisePoolMapConfig?: PromisePoolMapConfig & TxOptions,
+		options?: TxOptions,
 	): Promise<InstanceType<T> | null>;
 
 	static get<T extends typeof DatabaseObject>(
@@ -610,6 +644,7 @@ export declare class DatabaseObject {
 	static create<T extends typeof DatabaseObject>(
 		this: T,
 		data: AnyRecord,
+		options?: TxOptions,
 	): Promise<InstanceType<T>>;
 
 	static findOrCreate<T extends typeof DatabaseObject>(
@@ -625,12 +660,14 @@ export declare class DatabaseObject {
 		data: AnyRecord,
 		span?: any,
 		promisePoolMapConfig?: PromisePoolMapConfig,
+		options?: TxOptions,
 	): Promise<InstanceType<T> | null>;
 
 	static inflateValues(
 		data: AnyRecord,
 		span?: any,
 		promisePoolMapConfig?: PromisePoolMapConfig,
+		options?: TxOptions,
 	): Promise<AnyRecord>;
 
 	static deflateValues(object?: AnyRecord, noUndefined?: boolean): AnyRecord;

@@ -38,6 +38,57 @@ portable isolation levels, `readOnly`, PostgreSQL `deferrable`, SQLite
 MySQL/MariaDB and PostgreSQL and immediate mode on SQLite. Pass
 `{ useTransaction: false }` in its existing options position to opt out.
 
+### Model-level binding (`{ tx }`)
+
+Model methods accept the transaction handle directly, so several model writes
+can land atomically without dropping to the raw dbh surface:
+
+```javascript
+await BCTask.withDbh((dbh) =>
+  dbh.transaction(
+    async (tx) => {
+      const task = await BCTask.create({ title: 'Relay audit result' }, { tx });
+      const work = await BCTask.create({ title: 'Scope the email CLI' }, { tx });
+      await BCTaskLink.create({ fromTask: work, toTask: task }, { tx });
+      await task.patch({ status: 'in_progress' }, { tx });
+
+      // Reads must join too, or they cannot see the writes above.
+      return BCTask.get(task.id, { tx });
+    },
+    { isolationLevel: 'serializable', maxRetries: 2 },
+  ),
+);
+```
+
+`{ tx }` is accepted by `create`, `patch`, `remove`, `get`, `search`,
+`searchOne`, and `findOrCreate`. `search`/`searchOne` also accept `tx` in their
+`promisePoolMapConfig` slot, so `searchOne(fields, { tx })` works as written.
+
+Three things this does that a naive pass-through would not:
+
+- **Reads join the transaction.** An uncommitted row is invisible to any other
+  connection, so `get`/`search` must run on `tx` to read your own writes.
+- **`tx` threads through inflation.** Linked-field resolution is a database
+  read; without threading, links to rows created earlier in the same
+  transaction resolve to `null` while the database rows are correct.
+- **Per-statement retry is disabled.** Retrying one statement on a fresh
+  connection would land the write *outside* the transaction. Use
+  `dbh.transaction({ maxRetries })`, which replays the whole callback.
+
+`findOrCreate(fields, patchIf, patchIfFalsey, { tx })` **joins** the caller's
+transaction rather than opening its own; `tx` takes precedence over
+`useTransaction` / `transactionOptions`.
+
+Model hooks (`afterCreateHook`, `afterChangeHook`) and global change hooks now
+receive `tx`. A hook that performs its own DB writes and does not forward `tx`
+will write outside the transaction — those writes commit even if the
+transaction rolls back.
+
+One known limitation: `inflate` populates the per-class identity cache, so rows
+created inside a transaction that later rolls back leave cached instances for
+ids that no longer exist. Call `Model.clearCache()` after a rollback if you
+rely on cached reads.
+
 See [docs/transactions.md](docs/transactions.md) for complete dialect
 semantics, retry guidance, `findOrCreate` signatures, and the API audit.
 

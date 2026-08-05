@@ -43,6 +43,32 @@ expectType<Promise<number>>(
 );
 expectType<Promise<any>>(MyModel.withDbh('SELECT 1', {}));
 
+// Model-level transaction binding: `{ tx }` on the model write/read surface.
+expectType<Promise<MyModel>>(
+	MyModel.withDbh(async (dbh) =>
+		dbh.transaction(async (tx) => {
+			expectType<Promise<MyModel>>(MyModel.create({ id: 'id_123' }, { tx }));
+			expectType<Promise<MyModel | null>>(MyModel.get('id_123', { tx }));
+			expectType<Promise<MyModel[]>>(
+				MyModel.search({ id: 'id_123' }, false, undefined, { tx }),
+			);
+			// `tx` is also accepted in the promisePoolMapConfig slot, so the shape
+			// callers naturally reach for compiles too.
+			expectType<Promise<MyModel | null>>(
+				MyModel.searchOne({ id: 'x' }, { tx }),
+			);
+			expectType<Promise<MyModel>>(
+				MyModel.findOrCreate({ id: 'id_123' }, {}, {}, { tx }),
+			);
+
+			const instance = await MyModel.create({ id: 'id_123' }, { tx });
+			expectType<Promise<MyModel>>(instance.patch({ id: 'id_123' }, { tx }));
+			expectType<Promise<MyModel>>(instance.remove({ tx }));
+			return instance;
+		}),
+	),
+);
+
 // find() returns a packet (not instances)
 expectType<Promise<FinderResult<Record<string, any>>>>(
 	MyModel.find({ $limit: 10 }),
