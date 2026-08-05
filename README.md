@@ -767,6 +767,8 @@ const results = await Model.search({ name: 'test' });
 
 	2. Instead of using the first column, you can provide an index spec as an object with `cols`, `fulltext`, and `unique` props. The `cols` property supports all the same formats described below and is parsed identically as described below, no change to current functionality. The `fulltext` sibling prop is used to enable the same SQL transformation as described above (e.g. `create fulltext index` vs `create index`). The `unique` sibling prop is used to generate a portable unique index (e.g. `create unique index` vs `create index`).
 
+		`columns` is also accepted as an alias for `cols` (identical behavior) -- `cols` remains the canonical/current key; `columns` exists purely so a schema def spelled either way behaves the same instead of silently creating no index. If both `cols` and `columns` are present on the same spec, `cols` wins. Other spellings (e.g. `fields`) are still not recognized and will silently produce no index, exactly as before -- only `cols`/`columns` are accepted keys.
+
 		Example of this style:
 
 		```javascript
