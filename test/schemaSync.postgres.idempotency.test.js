@@ -188,3 +188,163 @@ describe('#schemaSync Postgres end-to-end idempotency', () => {
 		expect(columnDiffs).to.deep.equal([]);
 	});
 });
+
+// Partial indexes and nested JSON paths against the live server. The unit-level
+// coverage lives in test/schemaSync.partialIndex.test.js and
+// lib/sql-transform/test/postgresJsonPath.test.js; this proves the round trip
+// through a real catalog, which is the only way to know the predicate and
+// expression normalizers actually match what Postgres reports back.
+describe('#schemaSync Postgres partial indexes + nested JSON paths', () => {
+	const tableName = `pg_partnest_${uuid().replace(/-/g, '')}`;
+
+	// Postgres index names are unique per SCHEMA, not per table (unlike MySQL), so
+	// scope them to this table or they collide with any other table's `idx_live`.
+	const ix = (name) => `${tableName}_${name}`;
+
+	const schemaFor =
+		(statusPredicate) =>
+		({ types: t }) => ({
+			table: tableName,
+			schema: {
+				id: t.idKey,
+				status: t.string,
+				email: t.string,
+				meta: t.object,
+			},
+			options: {
+				indexes: {
+					// Predicates are RAW dialect SQL, so a camelCase column must be quoted
+					// by the author -- Postgres folds unquoted identifiers to lowercase.
+					[ix('idx_live')]: { cols: ['status'], where: '"isDeleted" = false' },
+					[ix('idx_notnull')]: { cols: ['email'], where: 'status IS NOT NULL' },
+					[ix('idx_status')]: { cols: ['id'], where: statusPredicate },
+					[ix('idx_in')]: { cols: ['email'], where: "status IN ('a','b')" },
+					[ix('idx_like')]: { cols: ['id'], where: "email LIKE 'a%'" },
+					[ix('idx_compound')]: {
+						cols: ['status'],
+						where: '"isDeleted" = false AND status IS NOT NULL',
+					},
+					// Nested JSON path -- needs the #>> operator, not ->>
+					[ix('idx_json_deep')]: ["meta->>'$.a.b'"],
+					[ix('idx_json_flat')]: ["meta->>'$.valence'"],
+				},
+			},
+		});
+
+	const syncAndCollect = async (statusPredicate) => {
+		const logs = [];
+		const origLog = console.log;
+		console.log = (...args) => logs.push(args.join(' '));
+		let result;
+		try {
+			result = await syncSchemaToDb(
+				YassORM.convertDefinition(schemaFor(statusPredicate)),
+			);
+		} finally {
+			console.log = origLog;
+		}
+		return {
+			result,
+			built: logs
+				.filter((l) => l.includes('(re)Creating index'))
+				.map((l) => (l.match(/'([^']+)'/) || [])[1])
+				// Strip the table scoping so assertions stay readable
+				.map((n) => `${n}`.replace(`${tableName}_`, '')),
+		};
+	};
+
+	before(async function beforePgPartialSuite() {
+		if (!isPostgres()) {
+			this.skip();
+			return;
+		}
+		const conn = await dbh({ ignoreCachedConnections: true });
+		await conn.pquery(`DROP TABLE IF EXISTS "${tableName}"`);
+		await conn.end();
+		const { result } = await syncAndCollect("status = 'active'");
+		expect(result.errors).to.deep.equal([]);
+	});
+
+	after(async () => {
+		if (!isPostgres()) {
+			return;
+		}
+		const conn = await dbh({ ignoreCachedConnections: true });
+		await conn.pquery(`DROP TABLE IF EXISTS "${tableName}"`);
+		await conn.end();
+	});
+
+	it('creates partial indexes with their WHERE clause', async () => {
+		const conn = await dbh({ ignoreCachedConnections: true });
+		const rows = await conn.pquery(
+			`SELECT i.relname AS idx, pg_get_indexdef(ix.indexrelid) AS def
+			 FROM pg_index ix JOIN pg_class i ON i.oid = ix.indexrelid
+			 JOIN pg_class t ON t.oid = ix.indrelid WHERE t.relname = $1`,
+			[tableName],
+		);
+		await conn.end();
+		const byName = {};
+		rows.forEach((r) => {
+			byName[r.idx] = r.def;
+		});
+
+		expect(byName[ix('idx_live')]).to.match(/WHERE/i);
+		expect(byName[ix('idx_live')]).to.include('isDeleted');
+		expect(byName[ix('idx_compound')]).to.match(/AND/i);
+		// A non-partial index must not acquire a predicate
+		expect(byName[ix('idx_json_flat')]).to.not.match(/WHERE/i);
+	});
+
+	it('creates nested JSON paths with the #>> path operator', async () => {
+		const conn = await dbh({ ignoreCachedConnections: true });
+		const rows = await conn.pquery(
+			`SELECT i.relname AS idx, pg_get_indexdef(ix.indexrelid) AS def
+			 FROM pg_index ix JOIN pg_class i ON i.oid = ix.indexrelid
+			 JOIN pg_class t ON t.oid = ix.indrelid WHERE t.relname = $1`,
+			[tableName],
+		);
+		await conn.end();
+		const byName = {};
+		rows.forEach((r) => {
+			byName[r.idx] = r.def;
+		});
+
+		// Nested: #>> with a text[] path. Previously this was ->> '$.a.b', a key
+		// literally named "$.a.b" that no row can have.
+		expect(byName[ix('idx_json_deep')]).to.include('#>>');
+		expect(byName[ix('idx_json_deep')]).to.include("'{a,b}'");
+		// Single-level stays on the plain key operator
+		expect(byName[ix('idx_json_flat')]).to.include("->> 'valence'");
+	});
+
+	it('reads a nested JSON value back through the ORM', async () => {
+		const conn = await dbh({ ignoreCachedConnections: true });
+		await conn.pquery(
+			`INSERT INTO "${tableName}" (meta) VALUES ('{"a":{"b":"deep-value"}}')`,
+		);
+		// Written MySQL-style; the transformer must turn this into #>>'{a,b}'
+		const rows = await conn.pquery(
+			`SELECT meta->>'$.a.b' AS v FROM "${tableName}" WHERE meta->>'$.a.b' IS NOT NULL`,
+		);
+		await conn.end();
+		expect(rows.map((r) => r.v)).to.include('deep-value');
+	});
+
+	it('emits NO DDL when nothing changed', async () => {
+		const { result, built } = await syncAndCollect("status = 'active'");
+		expect(result.errors).to.deep.equal([]);
+		// Every predicate spelling above must normalize equal to what Postgres
+		// reports back, or these rebuild forever under a metadata lock.
+		expect(built).to.deep.equal([]);
+	});
+
+	it('rebuilds ONLY the index whose predicate actually changed', async () => {
+		const { result, built } = await syncAndCollect("status = 'archived'");
+		expect(result.errors).to.deep.equal([]);
+		expect(built).to.deep.equal(['idx_status']);
+
+		// ...and settles immediately afterwards
+		const { built: after } = await syncAndCollect("status = 'archived'");
+		expect(after).to.deep.equal([]);
+	});
+});

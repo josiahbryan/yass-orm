@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-08-08
+
+### Added
+
+- **Partial (filtered) indexes — `where` on an index spec.** An index that covers only the rows matching a predicate:
+  ```js
+  options: { indexes: {
+      idx_live:  { cols: ['status'], where: '"isDeleted" = false' },
+      idx_recent: { cols: ['email'], where: 'status IS NOT NULL' },
+  } }
+  ```
+  **`where` is raw dialect SQL**, deliberately not parsed or rewritten — so on Postgres a camelCase column must be quoted by the author (`"isDeleted"`, not `isDeleted`), because Postgres folds unquoted identifiers to lowercase. Silently rewriting a user's SQL predicate is riskier than requiring correct SQL.
+  - **Answering the obvious question: MySQL/MariaDB cannot do this at all.** There is no partial-index syntax — verified against MySQL 8.4.2, where `CREATE INDEX ... WHERE isDeleted = 0` fails with a syntax error. Postgres and SQLite both support it. New `dialect.supportsPartialIndexes` capability (false by default, so a new dialect opts in deliberately).
+  - **On MySQL the behavior depends on `unique`, and the distinction is a correctness one:**
+    - **Non-unique** → degrades to a FULL index with a warning. It covers a superset of the requested rows, so every query the partial index would have served still returns correct results; it just costs more space. Dropping it entirely would be the bigger regression (a silent performance cliff).
+    - **Unique** → **skipped**, with a loud error explaining why. `unique: true` + `where: 'isDeleted = 0'` is the standard "unique among live rows" pattern; as a full UNIQUE index it would **reject rows the predicate was meant to exclude** — a second soft-deleted row with the same email would fail to insert. That is silent data rejection, so it is never degraded.
+  - The degraded (MySQL) form also drops the predicate from the desired **signature**, so a degraded index does not churn on every sync.
+
+- **Nested JSON paths now work.** `meta->>'$.a.b'` previously had its `$.` prefix merely stripped, leaving the single key `'a.b'` — which no row has. Nothing errored (it is valid SQL); it just returned NULL forever, on both the query side and the index side. Postgres has no JSONPath in `->>`: a path deeper than one level needs the **different operator** `#>>` with a `text[]` path literal.
+  - New `lib/sql-transform/postgresJsonPath.js` is the single source of truth, used by **both** the query transformer and the index DDL generator. That sharing is the point: if the two ever disagreed, a functional JSON index would be dead weight the planner can never match to a query. There are now tests asserting the two emit the same accessor for both the flat and nested cases.
+  - Array subscripts (`$.items[0].name`) become ordinary path steps, which Postgres interprets as array indexes.
+  - Verified end-to-end on a live server: `meta->>'$.a.b'` reads the nested value back through the ORM, and the index is created as `#>> '{a,b}'`.
+
+### Fixed
+
+- **The dormant partial-index introspection gap (Postgres).** `getTableIndexes` parsed its column list with a greedy `/\((.+)\)$/` — first paren to last paren — so for a partial index
+  ```
+  CREATE INDEX i ON t USING btree (status) WHERE ("isDeleted" = false)
+  ```
+  the "column list" came out as `status) WHERE ("isDeleted" = false`. Those columns could never match a schema, so any hand-created partial index was dropped and recreated on **every sync**. Replaced with balanced-paren extraction, which also handles nested parens inside expression indexes correctly.
+- **Partial-index predicates are compared semantically, not textually.** This was the hard part, and it is why the predicate is in the signature at all. Postgres does not report back what you wrote — it re-renders the predicate, and every one of these differences would otherwise mean a rebuild-forever loop. All confirmed against a live PostgreSQL 16 server, not from documentation:
+  | schema writes | Postgres reports |
+  |---|---|
+  | `isDeleted = false` | `("isDeleted" = false)` |
+  | `status = 'active'` | `((status)::text = 'active'::text)` |
+  | `a = false AND b IS NOT NULL` | `((a = false) AND (b IS NOT NULL))` |
+  | `status IN ('a','b')` | `((status)::text = ANY ((ARRAY['a'::character varying, …])::text[]))` |
+  | `email LIKE 'a%'` | `(email ~~ 'a%'::text)` |
+  | `email NOT LIKE 'a%'` | `(email !~~ 'a%'::text)` |
+  | `email ILIKE 'a%'` | `(email ~~* 'a%'::text)` |
+  | `status != 'x'` | `(status <> 'x'::text)` |
+  `normalizeIndexPredicate()` folds all of these to one canonical form. Verified on the live server across 12 predicate spellings: create → 14 indexes built, resync twice → **0** DDL, change one predicate → exactly **1** rebuild (only the affected index), resync → 0.
+  - **Deliberate tradeoff, documented in the code and covered by a test:** parentheses are dropped entirely, because Postgres adds them in places that cannot be predicted without a SQL parser. So the comparison is blind to **re-grouping** — `a AND (b OR c)` and `(a AND b) OR c` normalize identically, and a change that only re-groups an existing expression is not detected. This is the safe direction to fail: the alternative (comparing parens literally) meant a drop-and-recreate on every sync, which on a large table takes a metadata lock and stalls writes — the exact failure this whole line of work exists to eliminate. Any change to the predicate's actual *terms* is detected.
+  - Non-partial index signatures are **byte-identical** to before (the `where` key is undefined and `JSON.stringify` omits undefined), so upgrading cannot trigger a rebuild of existing indexes. There is a test asserting exactly that.
+- SQLite's `getTableIndexes` now reports a partial index's predicate too (it stores the original statement verbatim, so unlike Postgres there is no re-rendering to undo).
+
+### Notes
+
+- **Postgres index names are unique per SCHEMA, not per table** (unlike MySQL, where they are table-scoped). Two tables in the same database that each declare `idx_status` will collide, and the second fails with `relation "idx_status" already exists`. yass-orm already works around this for its automatic `isDeleted` index (`${tableName}_isDeleted` on non-MySQL dialects) but user-declared index names are passed through as written. **Not changed here** — auto-prefixing would rename indexes in any existing SQLite deployment — but worth knowing when naming indexes in a Postgres schema. Hit while writing these tests.
+- 27 new tests: 24 in `test/schemaSync.partialIndex.test.js` (capability, the predicate-equivalence table above, genuine-change detection, the grouping-blindness tradeoff, signature compatibility, DDL, and the balanced-paren introspection fix), 3 in `test/schemaSync.partialIndex.mysql.test.js` (the degradation rules against live MySQL), 12 in `lib/sql-transform/test/postgresJsonPath.test.js`, plus 5 live-Postgres end-to-end cases and 2 query/index-agreement cases. MySQL suite: 680 passing, 0 failing. Dialect units: 245. Postgres: 19.
+
 ## [2.1.4] - 2026-08-08
 
 ### Security
