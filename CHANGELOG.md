@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.4] - 2026-08-08
+
+### Security
+
+- **Patched the HIGH-severity `js-yaml` advisory [GHSA/CVE-2026-59870](https://github.com/advisories) — quadratic CPU consumption in `!!omap` resolution.** `resolveYamlOmap()` enforces key uniqueness with a linear `objectKeys.indexOf(...)` scan inside the per-element loop, so resolution degrades to O(n²). Present transitively at **4.1.0** via `mocha@9.2.2`, which pins js-yaml at an **exact** `4.1.0` rather than a range.
+  - A blanket top-level override would have been wrong: the other js-yaml line in the tree is **3.14.1** (via `eslint@7.32.0` and `@eslint/eslintrc`), and js-yaml 4 removed `safeLoad`, so forcing 4.x there would break eslint at runtime. The overrides are therefore **scoped per parent**: `mocha` → `^4.3.1` (the patched 4.x), and `eslint`/`@eslint/eslintrc` → `^3.15.1` (the 3.x maintenance line, within their declared `^3.13.1` range).
+  - Verified `npm audit` no longer reports js-yaml, and that both dependents still work under the overridden versions (`npm run eslint` clean, full mocha suite green).
+  - Dev-dependency only — js-yaml is not reachable from any runtime code path in this package.
+
+### Fixed
+
+- **The Postgres text-search configuration is no longer hardcoded to `'english'`.** It selects the language's stemming and stopword rules, so it is a real schema decision. Set it per index (`{ fulltext: true, cols: [...], textSearchConfig: 'spanish' }`, or the `tsConfig` alias) or globally via `config.textSearchConfig`; it still defaults to `'english'`.
+  - A **changed** config is now detected as a changed index. `getTableIndexes` reads the config back off the index definition, and the signature carries it — without that, switching languages left the old index silently in place, since the column list and flags were identical. Verified on a live server: create → 1 build, resync → 0, switch to spanish → rebuild, resync → 0, switch back → rebuild.
+  - The value is validated as a plain identifier before being interpolated into DDL, so a config name from a schema file cannot smuggle SQL into a `CREATE INDEX`.
+  - **MySQL/SQLite signatures are byte-identical to before.** The key is only set for full-text on a dialect that has the concept, and `JSON.stringify` omits `undefined` keys — so upgrading cannot trigger a mass index rebuild.
+- **`t.object` and `t.array` now map to JSONB on Postgres instead of TEXT.** They convert to `{ type: 'longtext', isObject: true }` — the MySQL storage type — which landed in TEXT, throwing away JSONB's operators and indexing for the field type that most wants them. `t.json` already reached JSONB, so the two spellings disagreed about where the same data belongs. Verified end-to-end: an object and an array of strings round-trip through `create`/`get`/`patch` as real `jsonb` columns. This works because the inflate path already tolerates a non-string value (the `pg` driver hands back parsed objects for jsonb, not JSON text). An `ALTER` to JSONB emits an explicit `USING <col>::jsonb`, since Postgres will not cast text to jsonb implicitly.
+- **Postgres JSON functional indexes were silently useless.** Schemas spell JSON paths MySQL-style (`meta->>'$.valence'`), but Postgres' `->>` takes a **key name**, not a JSONPath — so the emitted index was on a key literally named `$.valence`, which no row can have. It failed silently in the worst way: the DDL is valid Postgres, so the index built successfully and indexed NULL forever. And because `PostgresSqlTransformer` already strips the `$.` prefix on the **query** side, the planner could never match the index to a query even in principle. The index expression is now normalized identically to the query (`meta->>'valence'`), and double-quoted paths become single-quoted literals (a double-quoted token is an identifier in Postgres). A new `normalizePostgresIndexExpression` converts the introspected form (`((meta ->> 'valence'::text))`) back to the canonical schema shorthand so these indexes are idempotent too — confirmed 0 churn on a second sync.
+  - **Known limitation:** a nested path (`$.a.b`) is treated as a single key named `a.b`, matching what the query transformer already does. Both sides agree, so the index is usable and consistent, but genuinely nested lookups need `#>>'{a,b}'` — a separate change spanning the transformer.
+- **`dbh({ ignoreCachedConnections: true })` could still poison the shared connection cache** — "Cannot use a pool after calling end on the pool". 2.0.19 stopped a throwaway handle from *replacing* an existing cache entry, but deliberately still cached it when the cache was **empty** ("the first-create case"). So when the very first handle for a key was a throwaway — exactly what a script or test does when its first database touch is a setup/teardown handle — it became the shared handle, and `end()`ing it left every later plain `dbh()` resolving to a dead pool. A throwaway must never become the shared handle, cache empty or not. **Dialect-agnostic** (the regression test runs on SQLite); it surfaced while writing the Postgres model tests.
+
+### Added
+
+- **Model and transaction coverage against a live Postgres server** (`test/postgres.model.test.js`, 10 tests): create/get with object+array inflation, search, patch, `findOrCreate` (both branches), `remove()` soft-delete asserting a real boolean landed on disk, transaction commit, rollback, read-your-own-writes with the identity cache cleared so the read must actually join the transaction, a JSONB round-trip inside a transaction, and nested-transaction savepoint rollback keeping the outer work. All pass; nothing in the model or transaction layer needed changing beyond the `dbh` fix above.
+- `npm run test:postgres` now runs both Postgres files. They skip unless the active dialect is postgres, so the normal MySQL run is unaffected (640 passing, 0 failing).
+- 8 more `PostgresDialect` unit tests (text-search config: per-index, default, identifier validation, read-back; JSON path: `$.` stripping, quote conversion, query/index agreement, introspection normalization) plus the `t.object`/`t.array` → JSONB cases. Dialect unit suites: 244 passing.
+
+### Known limitations (Postgres)
+
+- Nested JSON paths, as above.
+- `getTableIndexes` still parses partial-index definitions (`... WHERE (x IS NULL)`) with an outermost-parens heuristic. Dormant — nothing in schema-sync passes the `where` option, so this library never creates one.
+
 ## [2.1.3] - 2026-08-08
 
 ### Fixed

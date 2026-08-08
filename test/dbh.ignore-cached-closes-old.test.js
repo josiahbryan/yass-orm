@@ -23,11 +23,12 @@ const { dbh, closeAllConnections } = require('../lib/dbh');
 const tempFile = path.join('/tmp', `yass-orphan-pool-${process.pid}.sqlite`);
 const tempFile2 = path.join('/tmp', `yass-orphan-pool2-${process.pid}.sqlite`);
 const tempFile3 = path.join('/tmp', `yass-orphan-pool3-${process.pid}.sqlite`);
+const tempFile4 = path.join('/tmp', `yass-orphan-pool4-${process.pid}.sqlite`);
 
 describe('dbh closeReplacedPool option', () => {
 	after(async () => {
 		await closeAllConnections();
-		[tempFile, tempFile2, tempFile3].forEach((f) => {
+		[tempFile, tempFile2, tempFile3, tempFile4].forEach((f) => {
 			try {
 				fs.unlinkSync(f);
 			} catch (err) {
@@ -100,6 +101,28 @@ describe('dbh closeReplacedPool option', () => {
 		const again = await dbh({ dialect: 'sqlite', filename: tempFile3 });
 		expect(again).to.equal(cached);
 		const rows = await again.pquery('SELECT 1 AS ok');
+		expect(rows[0].ok).to.equal(1);
+	});
+
+	// The guard above only skipped the cache write when an entry ALREADY existed
+	// ("the first-create case" was deliberately cached). So when the very FIRST
+	// handle for a key was a throwaway -- which is exactly what a test's or a
+	// script's setup does before anything else touches the database -- it became
+	// the shared cached handle, and `end()`ing it left every later plain `dbh()`
+	// resolving to a dead pool: "Cannot use a pool after calling end on the pool".
+	// A throwaway handle must never become the shared one, cache empty or not.
+	it('does not poison an EMPTY cache when the first handle is a throwaway', async () => {
+		const fresh = await dbh({
+			dialect: 'sqlite',
+			filename: tempFile4,
+			ignoreCachedConnections: true,
+		});
+		await fresh.end();
+
+		// The next plain call must get a live pool, not the ended throwaway.
+		const shared = await dbh({ dialect: 'sqlite', filename: tempFile4 });
+		expect(shared).to.not.equal(fresh);
+		const rows = await shared.pquery('SELECT 1 AS ok');
 		expect(rows[0].ok).to.equal(1);
 	});
 });
