@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.3] - 2026-08-08
+
+### Fixed
+
+**The Postgres dialect now works end-to-end for the first time.** 2.1.2 fixed the Postgres FULLTEXT signature bug but could only verify it against canned `pg_get_indexdef()` strings, because no PostgreSQL server was reachable. With a real server (PostgreSQL 16.14, local Homebrew install) the canned strings turned out to match reality character-for-character — but running the sync end-to-end for the first time surfaced a stack of latent bugs that made `schema-sync` unusable against Postgres. Every one of them is now fixed and covered.
+
+The verification story from 2.1.2 is closed: `npm run test:postgres` creates a table with three FULLTEXT indexes, syncs the identical schema a second time, and asserts **zero** DDL — no column ALTER, no index drop, no index create. Confirmed red first: reverting the 2.1.2 `type` fix makes that test fail with all three FULLTEXT indexes rebuilding, which is the exact production symptom.
+
+- **`CREATE TABLE` failed outright for any schema using the standard commonFields.** `t.bool` converts to `{ type: 'int(1)', default: 0 }` — a JS **number** — which was interpolated bare as `DEFAULT 0`. Postgres rejects an integer default on a boolean column (`column "isDeleted" is of type boolean but default expression is of type integer`); MySQL accepts it, so this only ever failed here. Since `isDeleted` is in the default commonFields, essentially no table could be created. Boolean defaults are now rendered as real `true`/`false` literals, in both `generateFieldSpec` and `generateAlterModifyColumn` (the same bug existed at both sites).
+- **No Postgres table ever got a working primary key.** `mapType()` fell back to `'TEXT'` for anything unrecognized, but schema-sync resolves primary keys through `getIntegerPrimaryKeyAttrs()`/`getUuidPrimaryKeyAttrs()` — which return the ALREADY-NATIVE `'SERIAL'`/`'UUID'` — and `generateFieldSpec` maps that resolved type a second time. `SERIAL` was not a key in the map, so `id SERIAL PRIMARY KEY` was emitted as **`id TEXT PRIMARY KEY`**. Native PG types now map to themselves, the same way `SQLiteDialect` already did ("Map SQL types to themselves").
+- **Every `t.string` column silently became `TEXT` instead of `VARCHAR(255)`.** `t.string` converts to the bare type `varchar` (no length); MySQL normalizes that to `varchar(255)` in `generateFieldSpec`, and without the same normalization here it hit the TEXT fallback.
+- **`ALTER COLUMN ... TYPE SERIAL` is invalid SQL** (`type "serial" does not exist`) — `SERIAL` is CREATE-time shorthand for an integer column plus a sequence, not a real type. New `alterableType()` maps `SERIAL`/`BIGSERIAL`/`SMALLSERIAL` to `INTEGER`/`BIGINT`/`SMALLINT` for ALTER statements.
+- **`ALTER COLUMN ... DROP NOT NULL` was emitted for primary keys**, which Postgres refuses (a PK is implicitly NOT NULL). yass-orm's key attrs express that as `key: 'PRI'`, not `null: 0`, so the else-branch fired on every primary key.
+- **Every column was reported CHANGED on every sync.** The root cause of the residual churn, and the Postgres analogue of the FULLTEXT signature bug: the column diff builds its comparison map from `col._raw` with lowercased keys, which is specifically a MySQL `SHOW COLUMNS` row (`Field`/`Type`/`Null` → `field`/`type`/`null`, exactly the schema's own field keys). Postgres' `_raw` is an `information_schema` row, so lowercasing yields `column_name`/`data_type`/`is_nullable` — names that exist on no schema field. Each one compared unequal against `undefined`, so every column produced a no-op `ALTER`, **and** the errno-1170 guard then dropped and recreated every prefix-less index on those columns. It also meant the Postgres type-normalization rules already present in the diff (`text` == `longtext`, `boolean` == `int(1)`, …) never fired at all, since `k` was never `'type'`. The `_raw` branch now requires the MySQL shape; other dialects use the normalized structure.
+- **`getTableColumns` hardcoded `primaryKey: false`** ("Needs pg_constraint join for accuracy") and omitted declared lengths, so the diff could not recognize a primary key and could not match `character varying(255)`. Both fixed — primary-key membership resolved via `pg_index`/`pg_attribute`, and the reported type now carries its length as MySQL's does.
+- **Remaining no-op ALTERs closed** with Postgres normalization rules in the diff: `integer` == `SERIAL`, a `nextval(...)` default against a schema that declares none, `auto_increment` extra on a serial column, a primary key's implicit NOT NULL, and boolean defaults spelled `false`/`true` vs MySQL-style `0`/`1` (via a new `booleanishEquals` helper — note `default: 0` reaches the comparison as `''`, since the diff coerces falsy values).
+
+- `pg` moved from devDependencies to **dependencies**, matching how the other dialect drivers (`mariadb`, `better-sqlite3`) are declared. It remains lazy-loaded, so nothing is required at import time.
+- New `.yass-orm.postgres.js` test config and `npm run test:postgres` script. The config deliberately carries the SAME commonFields as `.yass-orm.js`/`.yass-orm.sqlite.js`, so a Postgres run exercises the identical schema shape the other dialects do — which is what caught the boolean-default failure.
+- 16 new tests: 12 unit tests in `lib/dialects/test/PostgresDialect.test.js` (native-type identity mapping, boolean DEFAULT coercion across `0`/`1`/`'0'`/`'1'`/`true`/`false`, resolved SERIAL/UUID keys, the four `generateAlterModifyColumn` fixes, and `getTableColumns` primary-key/length normalization) plus 4 end-to-end tests in `test/schemaSync.postgres.idempotency.test.js`. The end-to-end file skips unless the active dialect is Postgres, so it is inert in the normal MySQL run.
+- Full MySQL suite: 627 passing, 0 failing — the `_raw` gating change leaves MySQL byte-identical, which is why it is gated on the MySQL row shape rather than on the dialect name.
+
+### Known limitations (Postgres, unchanged by this release)
+
+- The text-search configuration is hardcoded to `'english'` in `generateCreateIndex`. Any deployment needing another language cannot express it.
+- `getTableIndexes` still parses partial-index definitions (`... WHERE (x IS NULL)`) with an outermost-parens heuristic that would capture the `WHERE` clause as columns. Nothing in schema-sync passes the `where` option, so this library never creates one.
+- `t.object` maps to `TEXT` rather than `JSONB` (it converts to `longtext`, which maps to TEXT). Only `t.json` reaches `JSONB`. Left alone deliberately — changing it would rewrite existing columns.
+- Only schema-sync was exercised end-to-end. Model CRUD, transactions, and the SQL transformer against a live Postgres server remain unverified.
+
 ## [2.1.2] - 2026-08-08
 
 ### Fixed
