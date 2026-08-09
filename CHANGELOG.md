@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-08-09
+
+### Changed
+
+- **Postgres index names are now scoped to their table, deterministically.** MySQL scopes index names to their table, so `users.idx_status` and `orders.idx_status` coexist. Postgres does not — an index is a relation in `pg_class`, unique per schema — so the *second* table to declare `idx_status` failed outright with `relation "idx_status" already exists`. Since `idx_status` / `idx_email` are exactly the names people reuse, a schema that worked on MySQL broke on Postgres. On Postgres the declared name is now prefixed with the table name (`users_idx_status`), extending the convention yass-orm already used for its automatic `isDeleted` index.
+  - **Deterministic and idempotent.** Same inputs always give the same name; a name that already starts with `<table>_` is left alone, so hand-scoped names are not double-prefixed and applying the rule twice is a no-op.
+  - **Postgres only.** MySQL is untouched (its names are already table-scoped). SQLite is *also* database-global but is deliberately excluded: prefixing there would rename the indexes of every existing SQLite database for a collision that has not been reported, whereas Postgres has no such installed base — the dialect only began working in 2.1.3. New `dialect.prefixIndexNamesWithTable` capability, false by default.
+  - **The 63-character limit is handled.** Postgres silently truncates a longer identifier (it emits only a `NOTICE`), and prefixing makes names longer — so an over-long name would have been asked for, stored truncated, never found on lookup, and recreated on every sync. `fitIdentifierToLimit()` truncates deterministically with an 8-char digest of the *full* intended name, so the result is stable across runs and two names sharing a long prefix stay distinct. New `dialect.maxIdentifierLength` (Postgres 63, MySQL 64).
+  - **The stale-index sweep had to be taught the difference.** It drops any database index not declared by the schema, comparing names. Left alone it would have compared the raw schema keys (`idx_status`) against the physical ones (`t_idx_status`), found no match, and dropped every index the same sync had just created — an endless drop/create loop. It now compares physical names.
+  - **Migration for an existing Postgres database is one pass:** the old bare-named index is not in the declared set, so the sweep drops it while the prefixed one is created — once — and the next sync is silent. Covered by a live test that asserts exactly that, including the "then settles" half.
+  - Every user-facing message still shows the name the schema author wrote; only DDL and catalog lookups use the physical name.
+
+### Added
+
+- Test coverage for the gaps in the earlier Postgres work, found by auditing what had actually been asserted rather than assumed:
+  - `test/schemaSync.indexNameScoping.test.js` (15 tests): capability per dialect, determinism, the cross-table collision, no double-prefixing, the length limit including "two long names sharing a prefix stay distinct".
+  - Live index-name scoping (3 tests): two tables declaring the same index name coexist; no churn and the sweep does not eat the prefixed index; the one-pass migration from a bare name.
+  - Live **text-search config** (3 tests): defaults to `english` without churn, rebuilds when switched to `spanish` and settles, and switches back — proving detection works in both directions. 2.1.4 shipped this behavior verified only by hand.
+  - `mapType('varchar')` — the bare `varchar` that `t.string` converts to. The fix shipped in 2.1.3 but only the *live* column type was asserted, never the mapping itself.
+  - SQLite partial-index predicate introspection, added in 2.2.0 with no test at all. Created inside its own test rather than the shared fixture, so the index count other introspection tests assert is unchanged.
+
+MySQL suite: 717 passing, 0 failing. Dialect units: 247. Postgres: 25.
+
 ## [2.2.1] - 2026-08-08
 
 ### Fixed

@@ -44,6 +44,12 @@ describe('#schemaSync Postgres end-to-end idempotency', () => {
 	const ftVarcharIndex = 'idx_pg_notes_ft';
 	const btreeIndex = 'idx_pg_slug';
 
+	// Postgres index names live in ONE namespace per schema rather than being
+	// scoped to their table, so schema-sync prefixes the declared name with the
+	// table name. The schema keeps saying `idx_pg_body_ft`; the catalog reports
+	// `<table>_idx_pg_body_ft`.
+	const phys = (name) => `${tableName}_${name}`;
+
 	const schemaDef = ({ types: t }) => ({
 		table: tableName,
 		schema: {
@@ -130,13 +136,13 @@ describe('#schemaSync Postgres end-to-end idempotency', () => {
 			byName[r.idx] = r.def;
 		});
 
-		expect(byName[ftIndex]).to.match(/USING gin/i);
-		expect(byName[ftIndex]).to.include('to_tsvector');
+		expect(byName[phys(ftIndex)]).to.match(/USING gin/i);
+		expect(byName[phys(ftIndex)]).to.include('to_tsvector');
 		// Multi-column concatenation must have parsed at all (it was a syntax error)
-		expect(byName[ftMultiIndex]).to.include('||');
+		expect(byName[phys(ftMultiIndex)]).to.include('||');
 		// varchar source column picks up the (col)::text cast
-		expect(byName[ftVarcharIndex]).to.include('::text');
-		expect(byName[btreeIndex]).to.match(/USING btree/i);
+		expect(byName[phys(ftVarcharIndex)]).to.include('::text');
+		expect(byName[phys(btreeIndex)]).to.match(/USING btree/i);
 	});
 
 	it('reports its own FULLTEXT indexes back as FULLTEXT', async () => {
@@ -152,12 +158,12 @@ describe('#schemaSync Postgres end-to-end idempotency', () => {
 
 		// This is the comparison that made every sync rebuild the index: `type` was
 		// never set, so an existing FULLTEXT index always read as fulltext:false.
-		expect(byName[ftIndex].type).to.equal('FULLTEXT');
-		expect(byName[ftIndex].columns).to.deep.equal(['body']);
-		expect(byName[ftMultiIndex].type).to.equal('FULLTEXT');
-		expect(byName[ftMultiIndex].columns).to.deep.equal(['title', 'body']);
-		expect(byName[ftVarcharIndex].columns).to.deep.equal(['notes']);
-		expect(byName[btreeIndex].type).to.equal('BTREE');
+		expect(byName[phys(ftIndex)].type).to.equal('FULLTEXT');
+		expect(byName[phys(ftIndex)].columns).to.deep.equal(['body']);
+		expect(byName[phys(ftMultiIndex)].type).to.equal('FULLTEXT');
+		expect(byName[phys(ftMultiIndex)].columns).to.deep.equal(['title', 'body']);
+		expect(byName[phys(ftVarcharIndex)].columns).to.deep.equal(['notes']);
+		expect(byName[phys(btreeIndex)].type).to.equal('BTREE');
 	});
 
 	it('emits NO DDL on a second sync of the identical schema', async () => {
@@ -364,5 +370,254 @@ describe('#schemaSync Postgres partial indexes + nested JSON paths', () => {
 		// ...and settles immediately afterwards
 		const { built: after } = await syncAndCollect("status = 'archived'");
 		expect(after).to.deep.equal([]);
+	});
+});
+
+// Postgres index names live in ONE namespace per schema, not per table (an index is
+// a relation in pg_class). Two tables both declaring `idx_status` therefore
+// collided outright -- `relation "idx_status" already exists` -- and since that is
+// exactly the name people reuse, a schema that worked on MySQL broke here. These
+// run against the live server because the collision is a server behavior.
+describe('#schemaSync Postgres index-name scoping (live)', () => {
+	const tableA = `pg_scope_a_${uuid().replace(/-/g, '')}`;
+	const tableB = `pg_scope_b_${uuid().replace(/-/g, '')}`;
+
+	// BOTH tables declare the SAME index name on purpose.
+	const schemaFor =
+		(table) =>
+		({ types: t }) => ({
+			table,
+			schema: { id: t.idKey, status: t.string },
+			options: { indexes: { idx_status: ['status'] } },
+		});
+
+	const syncBoth = async () => {
+		const logs = [];
+		const origLog = console.log;
+		console.log = (...args) => logs.push(args.join(' '));
+		let a;
+		let b;
+		try {
+			a = await syncSchemaToDb(YassORM.convertDefinition(schemaFor(tableA)));
+			b = await syncSchemaToDb(YassORM.convertDefinition(schemaFor(tableB)));
+		} finally {
+			console.log = origLog;
+		}
+		return {
+			errors: [...a.errors, ...b.errors],
+			created: logs.filter((l) => l.includes('(re)Creating index')),
+			dropped: logs.filter((l) => l.includes('removed:')),
+		};
+	};
+
+	const indexesOf = async (table) => {
+		const conn = await dbh({ ignoreCachedConnections: true });
+		const rows = await conn.pquery(
+			`SELECT i.relname AS idx FROM pg_index ix
+			 JOIN pg_class i ON i.oid = ix.indexrelid
+			 JOIN pg_class t ON t.oid = ix.indrelid
+			 WHERE t.relname = $1 AND i.relname NOT LIKE '%pkey'`,
+			[table],
+		);
+		await conn.end();
+		return rows.map((r) => r.idx);
+	};
+
+	before(async function beforeScopeSuite() {
+		if (!isPostgres()) {
+			this.skip();
+			return;
+		}
+		const conn = await dbh({ ignoreCachedConnections: true });
+		await conn.pquery(`DROP TABLE IF EXISTS "${tableA}"`);
+		await conn.pquery(`DROP TABLE IF EXISTS "${tableB}"`);
+		await conn.end();
+	});
+
+	after(async () => {
+		if (!isPostgres()) {
+			return;
+		}
+		const conn = await dbh({ ignoreCachedConnections: true });
+		await conn.pquery(`DROP TABLE IF EXISTS "${tableA}"`);
+		await conn.pquery(`DROP TABLE IF EXISTS "${tableB}"`);
+		await conn.end();
+	});
+
+	it('lets two tables declare the SAME index name without colliding', async () => {
+		const { errors } = await syncBoth();
+		// Before prefixing, the second table failed with
+		// `relation "idx_status" already exists`.
+		expect(errors).to.deep.equal([]);
+
+		expect(await indexesOf(tableA)).to.include(`${tableA}_idx_status`);
+		expect(await indexesOf(tableB)).to.include(`${tableB}_idx_status`);
+	});
+
+	it('is idempotent -- no churn, and the stale sweep does not eat the prefixed index', async () => {
+		// The stale-index sweep drops any index not declared by the schema. It has to
+		// compare PHYSICAL names: comparing the raw schema keys would find no match for
+		// `<table>_idx_status` and drop every index the same sync had just created.
+		const first = await syncBoth();
+		expect(first.created).to.deep.equal([]);
+		expect(first.dropped).to.deep.equal([]);
+
+		const second = await syncBoth();
+		expect(second.created).to.deep.equal([]);
+		expect(second.dropped).to.deep.equal([]);
+
+		expect(await indexesOf(tableA)).to.include(`${tableA}_idx_status`);
+	});
+
+	it('migrates a pre-existing bare-named index in ONE pass, then settles', async () => {
+		// A Postgres database created before prefixing has `idx_bare`. The sweep drops
+		// the undeclared bare name while the prefixed one is created -- once.
+		const conn = await dbh({ ignoreCachedConnections: true });
+		await conn.pquery(`CREATE INDEX "idx_bare" ON "${tableA}" ("status")`);
+		await conn.end();
+
+		const schemaWithBare = ({ types: t }) => ({
+			table: tableA,
+			schema: { id: t.idKey, status: t.string },
+			options: { indexes: { idx_status: ['status'], idx_bare: ['status'] } },
+		});
+
+		const runOnce = async () => {
+			const logs = [];
+			const origLog = console.log;
+			console.log = (...args) => logs.push(args.join(' '));
+			let result;
+			try {
+				result = await syncSchemaToDb(
+					YassORM.convertDefinition(schemaWithBare),
+				);
+			} finally {
+				console.log = origLog;
+			}
+			return {
+				errors: result.errors,
+				created: logs.filter((l) => l.includes('(re)Creating index')),
+				dropped: logs.filter((l) => l.includes('removed:')),
+			};
+		};
+
+		const migration = await runOnce();
+		expect(migration.errors).to.deep.equal([]);
+		// The bare name is dropped and the prefixed one created.
+		expect(migration.dropped.join(' ')).to.include('idx_bare');
+		expect(migration.created.join(' ')).to.include(`${tableA}_idx_bare`);
+
+		// ...and it settles immediately: no recurring churn.
+		const after = await runOnce();
+		expect(after.created).to.deep.equal([]);
+		expect(after.dropped).to.deep.equal([]);
+	});
+});
+
+// The text-search configuration selects the language's stemming/stopword rules, so
+// it is a real schema decision -- it used to be hardcoded to 'english'. Detecting a
+// CHANGE to it matters: the column list and flags stay identical when you switch
+// languages, so without reading the config back off the index the old one would sit
+// there silently serving the wrong language forever.
+describe('#schemaSync Postgres text-search config (live)', () => {
+	const tableName = `pg_tscfg_${uuid().replace(/-/g, '')}`;
+	const indexName = 'idx_ts';
+
+	const schemaFor =
+		(textSearchConfig) =>
+		({ types: t }) => ({
+			table: tableName,
+			schema: { id: t.idKey, body: t.text },
+			options: {
+				indexes: {
+					[indexName]: textSearchConfig
+						? { fulltext: true, cols: ['body'], textSearchConfig }
+						: { fulltext: true, cols: ['body'] },
+				},
+			},
+		});
+
+	const sync = async (textSearchConfig) => {
+		const logs = [];
+		const origLog = console.log;
+		console.log = (...args) => logs.push(args.join(' '));
+		let result;
+		try {
+			result = await syncSchemaToDb(
+				YassORM.convertDefinition(schemaFor(textSearchConfig)),
+			);
+		} finally {
+			console.log = origLog;
+		}
+		return {
+			errors: result.errors,
+			built: logs.filter(
+				(l) => l.includes('(re)Creating index') && l.includes(indexName),
+			),
+		};
+	};
+
+	const configOf = async () => {
+		const conn = await dbh({ ignoreCachedConnections: true });
+		const rows = await conn.pquery(
+			`SELECT pg_get_indexdef(ix.indexrelid) AS def FROM pg_index ix
+			 JOIN pg_class i ON i.oid = ix.indexrelid
+			 JOIN pg_class t ON t.oid = ix.indrelid
+			 WHERE t.relname = $1 AND i.relname LIKE $2`,
+			[tableName, `%${indexName}`],
+		);
+		await conn.end();
+		const match = `${(rows[0] || {}).def || ''}`.match(
+			/to_tsvector\(\s*'([^']+)'/,
+		);
+		return match ? match[1] : undefined;
+	};
+
+	before(async function beforeTsCfgSuite() {
+		if (!isPostgres()) {
+			this.skip();
+			return;
+		}
+		const conn = await dbh({ ignoreCachedConnections: true });
+		await conn.pquery(`DROP TABLE IF EXISTS "${tableName}"`);
+		await conn.end();
+	});
+
+	after(async () => {
+		if (!isPostgres()) {
+			return;
+		}
+		const conn = await dbh({ ignoreCachedConnections: true });
+		await conn.pquery(`DROP TABLE IF EXISTS "${tableName}"`);
+		await conn.end();
+	});
+
+	it("defaults to 'english' and does not churn", async () => {
+		const created = await sync(undefined);
+		expect(created.errors).to.deep.equal([]);
+		expect(created.built).to.have.lengthOf(1);
+		expect(await configOf()).to.equal('english');
+
+		const again = await sync(undefined);
+		expect(again.built).to.deep.equal([]);
+	});
+
+	it('rebuilds the index when the config CHANGES, then settles', async () => {
+		const switched = await sync('spanish');
+		expect(switched.errors).to.deep.equal([]);
+		expect(switched.built).to.have.lengthOf(1);
+		expect(await configOf()).to.equal('spanish');
+
+		// Settles immediately -- a changed config must not mean perpetual churn.
+		const again = await sync('spanish');
+		expect(again.built).to.deep.equal([]);
+		expect(await configOf()).to.equal('spanish');
+	});
+
+	it('switches back, proving detection works in both directions', async () => {
+		const back = await sync('english');
+		expect(back.built).to.have.lengthOf(1);
+		expect(await configOf()).to.equal('english');
+		expect((await sync('english')).built).to.deep.equal([]);
 	});
 });
