@@ -65,10 +65,13 @@ describe('#schemaSync partial indexes', () => {
 			["status != 'x'", "(status <> 'x'::text)"],
 		];
 
+		// These are POSTGRES renderings, so parse them as Postgres even though this
+		// suite runs under the MySQL config -- in MySQL, `"x"` is a string literal
+		// rather than an identifier, which would make the comparison meaningless.
 		equivalences.forEach(([schemaForm, databaseForm]) => {
 			it(`treats \`${schemaForm}\` and its reported form as equal`, () => {
-				expect(normalizeIndexPredicate(schemaForm)).to.equal(
-					normalizeIndexPredicate(databaseForm),
+				expect(normalizeIndexPredicate(schemaForm, 'postgresql')).to.equal(
+					normalizeIndexPredicate(databaseForm, 'postgresql'),
 				);
 			});
 		});
@@ -89,16 +92,44 @@ describe('#schemaSync partial indexes', () => {
 			);
 		});
 
-		it('is deliberately blind to re-GROUPING of a boolean expression', () => {
-			// Documented tradeoff: parens are dropped entirely, because Postgres adds
-			// them in places we cannot predict without a parser. So a change that ONLY
-			// re-groups an existing expression is not detected. The alternative --
-			// comparing parens literally -- meant rebuilding on EVERY sync, which on a
-			// large table takes a metadata lock and stalls writes. Failing to notice a
-			// regrouping is the safe direction.
-			expect(normalizeIndexPredicate('a AND (b OR c)')).to.equal(
+		// Predicates are compared through a real SQL AST (node-sql-parser), so
+		// grouping is carried by the SHAPE of the tree rather than by punctuation.
+		// Postgres' added parentheses collapse for free, while the author's actual
+		// structure survives. An earlier regex-only version had to drop ALL parens --
+		// it could not tell whose they were -- which made these two indistinguishable.
+		it('distinguishes re-GROUPING of a boolean expression', () => {
+			expect(normalizeIndexPredicate('a AND (b OR c)')).to.not.equal(
 				normalizeIndexPredicate('(a AND b) OR c'),
 			);
+		});
+
+		it('still ignores redundant parentheses that change nothing', () => {
+			expect(normalizeIndexPredicate('a AND b')).to.equal(
+				normalizeIndexPredicate('((a) AND (b))'),
+			);
+			expect(normalizeIndexPredicate('a AND b AND c')).to.equal(
+				normalizeIndexPredicate('((a AND b) AND c)'),
+			);
+		});
+
+		it('distinguishes operator precedence written explicitly', () => {
+			// `a OR b AND c` binds as `a OR (b AND c)`; the other grouping differs.
+			expect(normalizeIndexPredicate('a OR b AND c')).to.equal(
+				normalizeIndexPredicate('a OR (b AND c)'),
+			);
+			expect(normalizeIndexPredicate('a OR b AND c')).to.not.equal(
+				normalizeIndexPredicate('(a OR b) AND c'),
+			);
+		});
+
+		it('falls back to text normalization when a predicate cannot be parsed', () => {
+			// Must not throw and must stay stable, so an exotic expression degrades to
+			// "no churn" rather than to a sync error.
+			const exotic = 'some_weird_op !!! thing';
+			expect(normalizeIndexPredicate(exotic)).to.equal(
+				normalizeIndexPredicate(exotic),
+			);
+			expect(normalizeIndexPredicate(exotic)).to.be.a('string');
 		});
 	});
 
@@ -120,6 +151,8 @@ describe('#schemaSync partial indexes', () => {
 		});
 
 		it('matches across schema and database spellings of the same predicate', () => {
+			// Single-quoted literals and casts only -- no double-quoted identifiers --
+			// so this holds under either parser dialect.
 			expect(
 				buildIndexSignature({ columns: ['a'], where: "status = 'active'" }),
 			).to.equal(
@@ -191,8 +224,8 @@ describe('#schemaSync partial indexes', () => {
 				),
 				'items',
 			);
-			expect(normalizeIndexPredicate(idx.where)).to.equal(
-				normalizeIndexPredicate('isDeleted = false'),
+			expect(normalizeIndexPredicate(idx.where, 'postgresql')).to.equal(
+				normalizeIndexPredicate('isDeleted = false', 'postgresql'),
 			);
 		});
 
@@ -215,7 +248,9 @@ describe('#schemaSync partial indexes', () => {
 				'items',
 			);
 			expect(idx.columns).to.deep.equal(['status', 'email']);
-			expect(normalizeIndexPredicate(idx.where)).to.equal('id>100');
+			expect(normalizeIndexPredicate(idx.where, 'postgresql')).to.equal(
+				normalizeIndexPredicate('id > 100', 'postgresql'),
+			);
 		});
 	});
 });

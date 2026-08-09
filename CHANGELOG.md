@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-08-08
+
+### Fixed
+
+- **Partial-index predicates are now compared through a real SQL AST, restoring the fidelity 2.2.0 gave up.** 2.2.0 compared predicates by normalizing text with regexes, and because it could not tell which parentheses were Postgres' and which were the author's, the only churn-free option was to drop **all** of them. That was a genuine capability loss: `a AND (b OR c)` and `(a AND b) OR c` normalized identically, so a predicate change that only re-grouped an expression went undetected.
+  - `node-sql-parser` was already a dependency (the Postgres SQL transformer uses it), so no new dependency was added. New `lib/sql-transform/indexPredicate.js` parses the predicate and renders a canonical form from the tree. Grouping now lives in the **shape** of the tree rather than in punctuation: redundant parentheses vanish for free while genuine structure is preserved exactly. What remains is a small set of deliberate equivalences — casts dropped, operator synonyms folded, `= ANY (ARRAY[...])` folded to `IN` — each a real semantic identity rather than a heuristic.
+  - **Both groupings are now distinguished, and redundant parens still ignored.** `a AND (b OR c)` ≠ `(a AND b) OR c`; `a AND b` = `((a) AND (b))` = `(((a AND b)))`.
+  - **AND/OR precedence is repaired.** `node-sql-parser` chains boolean operators strictly left-to-right, ignoring SQL precedence — it parses `a OR b AND c` as `(a OR b) AND c`, which is *not* what SQL means. Postgres reports predicates correctly parenthesized, so left uncorrected an author writing an unparenthesized mixed predicate would never match the catalog and the index would rebuild on every sync. `reassociateBooleans()` flattens the parser's chain (treating an author-parenthesized node as an atom, so real grouping survives) and rebinds with AND tighter than OR.
+  - Two bugs found and fixed while building this, both of which had been failing **silently** into the lossy text fallback:
+    - A predicate whose top-level node was parenthesized recursed infinitely (the flattener treats a parenthesized node as an atom, so passing the node itself back in never made progress). The stack overflow was swallowed by the `catch`, so it degraded quietly instead of erroring.
+    - The cast stripper allowed spaces inside type names — needed for `character varying` — which made it greedy across whitespace, so `::text ~~ ` swallowed the **operator** that followed and broke the parse. The multi-word types are now enumerated explicitly.
+  - Casts are stripped before parsing because the parser rejects several positions Postgres actually emits (`'a%'::text` on the right of `LIKE`, `::text[]`, `::character varying`); the renderer discards casts anyway. Pattern-match operators are rewritten to keyword spellings first, since the parser cannot lex `~~*` at all. Both rewrites are quote-aware, so a string literal containing `::` or `~~` is left alone.
+  - Canonicalization tries the preferred dialect and then the other, since Postgres reads `"x"` as an identifier while MySQL reads it as a string literal, and only MySQL accepts backticks. An unparseable predicate still falls back to the 2.2.0 text normalizer, so an exotic expression degrades to "no churn" rather than to a sync error.
+  - **Verified against a live PostgreSQL 16 server across 15 predicate spellings** — including explicit nested grouping (`a = false AND (b IS NULL OR id > 5)`) and an unparenthesized mixed `AND`/`OR` — create → 17 indexes built, resync twice → **0** DDL, change one predicate → exactly **1** rebuild, resync → 0. The LIKE/NOT LIKE/ILIKE family churned in the first live run of this change even though the canned unit strings passed, because a `varchar` column is reported as `((email)::text ~~ 'a%'::text)` rather than the `(email ~~ …)` I had assumed; that is what surfaced the greedy-cast bug.
+  - 17 new tests in `lib/sql-transform/test/indexPredicate.test.js` (grouping fidelity, precedence repair, each rendering artifact, genuine-difference preservation, failure handling), and the 2.2.0 test that asserted grouping-blindness as a deliberate tradeoff is inverted to assert the distinction. MySQL suite: 700 passing, 0 failing. Dialect units: 245. Postgres: 19.
+
 ## [2.2.0] - 2026-08-08
 
 ### Added

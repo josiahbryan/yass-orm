@@ -224,6 +224,20 @@ describe('#schemaSync Postgres partial indexes + nested JSON paths', () => {
 						cols: ['status'],
 						where: '"isDeleted" = false AND status IS NOT NULL',
 					},
+					// Explicit nested grouping, and an UNPARENTHESIZED mixed AND/OR whose
+					// precedence Postgres reports back parenthesized. Both are only
+					// idempotent because predicates are compared through a real SQL AST:
+					// the text-normalizing version could not see grouping at all, and the
+					// parser's own left-associative chaining gets the precedence wrong
+					// until reassociateBooleans() repairs it.
+					[ix('idx_grouped')]: {
+						cols: ['email'],
+						where: '"isDeleted" = false AND (status IS NULL OR id > 5)',
+					},
+					[ix('idx_precedence')]: {
+						cols: ['id'],
+						where: '"isDeleted" = false AND status IS NULL OR id > 5',
+					},
 					// Nested JSON path -- needs the #>> operator, not ->>
 					[ix('idx_json_deep')]: ["meta->>'$.a.b'"],
 					[ix('idx_json_flat')]: ["meta->>'$.valence'"],
@@ -291,6 +305,10 @@ describe('#schemaSync Postgres partial indexes + nested JSON paths', () => {
 		expect(byName[ix('idx_live')]).to.match(/WHERE/i);
 		expect(byName[ix('idx_live')]).to.include('isDeleted');
 		expect(byName[ix('idx_compound')]).to.match(/AND/i);
+		// Postgres reports these with its own parenthesization; the AST comparison is
+		// what keeps them from rebuilding every sync.
+		expect(byName[ix('idx_grouped')]).to.match(/OR/i);
+		expect(byName[ix('idx_precedence')]).to.match(/OR/i);
 		// A non-partial index must not acquire a predicate
 		expect(byName[ix('idx_json_flat')]).to.not.match(/WHERE/i);
 	});

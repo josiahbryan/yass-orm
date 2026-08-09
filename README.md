@@ -300,6 +300,13 @@ const results = await Model.search({ name: 'test' });
 ## Recent changes
 
 ---
+- 2026-08-08 (2.2.1)
+  - (fix) **Partial-index predicates are compared via a real SQL AST, restoring the fidelity 2.2.0 traded away.** 2.2.0 normalized predicate *text* and, unable to tell whose parentheses were whose, had to drop them all — which meant `a AND (b OR c)` and `(a AND b) OR c` compared equal, so a pure re-grouping went undetected. `node-sql-parser` was already a dependency (the Postgres transformer uses it), so the new `lib/sql-transform/indexPredicate.js` parses the predicate and canonicalizes from the tree: grouping lives in the tree's **shape**, so redundant parens vanish for free while real structure survives. Both groupings are now distinguished; `a AND b` still equals `((a) AND (b))`.
+  - (fix) **AND/OR precedence is repaired.** `node-sql-parser` chains booleans strictly left-to-right and ignores precedence — it reads `a OR b AND c` as `(a OR b) AND c`, which is not what SQL means. Postgres reports predicates correctly parenthesized, so uncorrected this meant an unparenthesized mixed predicate could never match the catalog and rebuilt on every sync.
+  - (fix) Two silent failures found while building it: a top-level parenthesized predicate recursed infinitely (stack overflow swallowed by the `catch`, degrading quietly to the lossy path), and the cast stripper allowed spaces in type names (needed for `character varying`) so `::text ~~ ` ate the operator after it. Multi-word types are now enumerated explicitly.
+  - (verified) Live PostgreSQL 16, 15 predicate spellings including nested grouping and unparenthesized mixed AND/OR: create → 17 built, resync twice → **0** DDL, change one predicate → exactly **1** rebuild. The LIKE family churned on the first live run despite passing canned unit strings — a `varchar` column reports as `((email)::text ~~ 'a%'::text)`, not `(email ~~ …)` — which is what exposed the greedy-cast bug. 17 new unit tests; the 2.2.0 test that asserted grouping-blindness is inverted to assert the distinction.
+
+---
 - 2026-08-08 (2.2.0)
   - (feat) **Partial (filtered) indexes** via `where` on an index spec: `idx_live: { cols: ['status'], where: '"isDeleted" = false' }`. `where` is **raw dialect SQL** — deliberately not parsed or rewritten — so on Postgres a camelCase column must be quoted by the author (`"isDeleted"`), since Postgres folds unquoted identifiers to lowercase.
     - **MySQL/MariaDB cannot do partial indexes at all** (verified on MySQL 8.4.2: `CREATE INDEX ... WHERE` is a syntax error). Postgres and SQLite can. New `dialect.supportsPartialIndexes` capability.
