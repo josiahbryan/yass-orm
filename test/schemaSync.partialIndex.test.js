@@ -164,6 +164,32 @@ describe('#schemaSync partial indexes', () => {
 		});
 	});
 
+	// `textSearchConfig` is a Postgres concept. Gating it on `isFullText` alone put
+	// the key into the DESIRED signature on MySQL too -- where introspection can
+	// never report one -- so every MySQL FULLTEXT index rebuilt on every sync under a
+	// metadata lock. It is gated on the dialect DEFINING a default config.
+	describe('text-search config is Postgres-only', () => {
+		it('only Postgres defines a default text-search config', () => {
+			expect(new PostgresDialect().defaultTextSearchConfig).to.equal('english');
+			expect(new MySQLDialect().defaultTextSearchConfig).to.equal(undefined);
+			expect(new SQLiteDialect().defaultTextSearchConfig).to.equal(undefined);
+		});
+
+		it('leaves it out of the signature when the dialect has no concept of it', () => {
+			// Same signature with and without the key: nothing to compare against, so
+			// including it could only ever cause a rebuild.
+			expect(
+				buildIndexSignature({ columns: ['body'], fulltext: true }),
+			).to.equal(
+				buildIndexSignature({
+					columns: ['body'],
+					fulltext: true,
+					textSearchConfig: undefined,
+				}),
+			);
+		});
+	});
+
 	describe('DDL generation', () => {
 		it('emits WHERE on Postgres', () => {
 			const sql = new PostgresDialect().generateCreateIndex(
@@ -183,6 +209,36 @@ describe('#schemaSync partial indexes', () => {
 				{ where: 'isDeleted = 0' },
 			);
 			expect(sql).to.include('WHERE isDeleted = 0');
+		});
+	});
+
+	// A GIN/full-text index can be PARTIAL too. The fulltext branch of
+	// generateCreateIndex returned BEFORE appending the predicate, so schema-sync put
+	// `where` into the desired signature (Postgres reports supportsPartialIndexes)
+	// while the DDL built an UNFILTERED index whose introspected `where` is
+	// undefined -- permanently unequal, i.e. a drop plus a full GIN rebuild under a
+	// metadata lock on every single sync.
+	describe('partial FULLTEXT indexes', () => {
+		it('emits the predicate on a Postgres FULLTEXT index', () => {
+			const sql = new PostgresDialect().generateCreateIndex(
+				'articles',
+				'idx_ft_live',
+				['body'],
+				{ fulltext: true, where: '"isDeleted" = false' },
+			);
+			expect(sql).to.match(/USING GIN/i);
+			expect(sql).to.include('to_tsvector');
+			expect(sql).to.include('WHERE "isDeleted" = false');
+		});
+
+		it('emits no WHERE when the index is not partial', () => {
+			const sql = new PostgresDialect().generateCreateIndex(
+				'articles',
+				'idx_ft',
+				['body'],
+				{ fulltext: true },
+			);
+			expect(sql).to.not.match(/WHERE/i);
 		});
 	});
 
@@ -238,6 +294,34 @@ describe('#schemaSync partial indexes', () => {
 			);
 			expect(idx.where).to.equal(undefined);
 			expect(idx.columns).to.deep.equal(['status', 'createdAt']);
+		});
+
+		// The JSON-functional-index branch tested the WHOLE definition for `->>`, so a
+		// partial index whose PREDICATE contains a JSON accessor -- over perfectly
+		// ordinary indexed columns -- was treated as a functional index and reported as
+		// ONE pseudo-column ('status, priority'), which could never equal the schema's
+		// two columns. Churn on every sync.
+		it('does not mistake a JSON predicate for a JSON column list', async () => {
+			const [idx] = await new PostgresDialect().getTableIndexes(
+				handleFor(
+					`CREATE INDEX idx_json_pred ON public.items USING btree (status, priority) WHERE ((meta ->> 'x'::text) = 'y'::text)`,
+				),
+				'items',
+			);
+			expect(idx.columns).to.deep.equal(['status', 'priority']);
+			expect(normalizeIndexPredicate(idx.where, 'postgresql')).to.equal(
+				normalizeIndexPredicate("meta->>'$.x' = 'y'", 'postgresql'),
+			);
+		});
+
+		it('still parses a genuine JSON functional index as one expression', async () => {
+			const [idx] = await new PostgresDialect().getTableIndexes(
+				handleFor(
+					`CREATE INDEX idx_json ON public.items USING btree (((meta ->> 'valence'::text)))`,
+				),
+				'items',
+			);
+			expect(idx.columns).to.deep.equal(['meta->>"$.valence"']);
 		});
 
 		it('parses a multi-column partial index correctly', async () => {

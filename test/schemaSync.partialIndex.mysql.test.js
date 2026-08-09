@@ -125,6 +125,43 @@ describe('#schemaSync partial indexes on MySQL (degradation rules)', () => {
 		).to.deep.equal([]);
 	});
 
+	// The RAW-SQL index-spec path (`cols` given as a parenthesized SQL string)
+	// silently dropped `where` on the floor: no predicate in the DDL, and no warning,
+	// so the author believed they had a partial index and did not. On MySQL, which
+	// cannot express one at all, the least-surprising behavior is to say so.
+	it('warns instead of silently dropping `where` on a raw-SQL index spec', async () => {
+		const rawTable = `${tableName}_raw`;
+		const schemaDef = ({ types: t }) => ({
+			table: rawTable,
+			schema: { id: t.idKey, status: t.string },
+			options: {
+				indexes: {
+					idx_raw: { cols: '(status)', where: 'isDeleted = 0' },
+				},
+			},
+		});
+
+		const { result, warnings } = await capture(schemaDef);
+		expect(result.errors).to.deep.equal([]);
+		expect(
+			warnings.filter(
+				(w) =>
+					w.includes("Raw-SQL index 'idx_raw'") &&
+					w.includes('does not') &&
+					w.includes('FULL index'),
+			),
+		).to.have.lengthOf(1);
+
+		const conn = await dbh({ ignoreCachedConnections: true });
+		const rows = await conn.pquery(
+			`SHOW INDEXES FROM \`${rawTable}\` WHERE Key_name = 'idx_raw'`,
+		);
+		await conn.pquery(`DROP TABLE IF EXISTS \`${rawTable}\``);
+		await conn.end();
+		// Still created (as a full index) -- the warning is the signal, not silence.
+		expect(rows.length).to.equal(1);
+	});
+
 	it('SKIPS a UNIQUE partial index rather than wrongly rejecting rows', async () => {
 		const uniqueTable = `${tableName}_u`;
 		const schemaDef = ({ types: t }) => ({

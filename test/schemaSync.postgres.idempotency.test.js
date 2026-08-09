@@ -621,3 +621,145 @@ describe('#schemaSync Postgres text-search config (live)', () => {
 		expect((await sync('english')).built).to.deep.equal([]);
 	});
 });
+
+// Live coverage for the issues a code review of this Postgres work turned up, plus
+// one found while verifying its fixes. Each was the same failure shape -- DDL
+// emitted on an unchanged schema -- so each is asserted as "second sync is silent".
+describe('#schemaSync Postgres review regressions (live)', () => {
+	const tableName = `pg_regress_${uuid().replace(/-/g, '')}`;
+
+	const schemaDef = ({ types: t }) => ({
+		table: tableName,
+		schema: {
+			id: t.idKey,
+			body: t.text,
+			// t.uuid becomes char(36); Postgres reports it back as `character(36)`,
+			// which had no diff normalization -- so it was CHANGED forever.
+			ref: t.uuid,
+			status: t.string,
+			priority: t.int,
+			meta: t.object,
+		},
+		options: {
+			indexes: {
+				// A GIN/full-text index can be PARTIAL. The predicate has to reach the
+				// DDL, or the index is built unfiltered and rebuilt on every sync.
+				idx_ft_partial: {
+					fulltext: true,
+					cols: ['body'],
+					where: '"isDeleted" = false',
+				},
+				// A JSON accessor in the PREDICATE, over ordinary indexed columns.
+				idx_json_pred: {
+					cols: ['status', 'priority'],
+					where: "meta->>'$.x' = 'y'",
+				},
+				// ...and a nested one.
+				idx_json_deep_pred: {
+					cols: ['priority'],
+					where: "meta->>'$.a.b' = 'y'",
+				},
+			},
+		},
+	});
+
+	const sync = async () => {
+		const logs = [];
+		const origLog = console.log;
+		console.log = (...args) => logs.push(args.join(' '));
+		let result;
+		try {
+			result = await syncSchemaToDb(YassORM.convertDefinition(schemaDef));
+		} finally {
+			console.log = origLog;
+		}
+		return {
+			errors: result.errors,
+			built: logs.filter((l) => l.includes('(re)Creating index')),
+			columnDiffs: logs.filter((l) => l.includes('Debug: k=')),
+		};
+	};
+
+	before(async function beforeRegressSuite() {
+		if (!isPostgres()) {
+			this.skip();
+			return;
+		}
+		const conn = await dbh({ ignoreCachedConnections: true });
+		await conn.pquery(`DROP TABLE IF EXISTS "${tableName}"`);
+		await conn.end();
+		const created = await sync();
+		expect(created.errors).to.deep.equal([]);
+	});
+
+	after(async () => {
+		if (!isPostgres()) {
+			return;
+		}
+		const conn = await dbh({ ignoreCachedConnections: true });
+		await conn.pquery(`DROP TABLE IF EXISTS "${tableName}"`);
+		await conn.end();
+	});
+
+	it('builds a PARTIAL full-text index with its predicate', async () => {
+		const conn = await dbh({ ignoreCachedConnections: true });
+		const rows = await conn.pquery(
+			`SELECT i.relname AS idx, pg_get_indexdef(ix.indexrelid) AS def
+			 FROM pg_index ix JOIN pg_class i ON i.oid = ix.indexrelid
+			 JOIN pg_class t ON t.oid = ix.indrelid WHERE t.relname = $1`,
+			[tableName],
+		);
+		await conn.end();
+		const { def } = rows.find((r) => r.idx.endsWith('idx_ft_partial')) || {};
+		expect(def).to.match(/USING gin/i);
+		expect(def).to.include('to_tsvector');
+		// Without the predicate this is an unfiltered index that rebuilds forever.
+		expect(def).to.match(/WHERE/i);
+	});
+
+	it('resolves the JSON path in a predicate to what Postgres reports', async () => {
+		const conn = await dbh({ ignoreCachedConnections: true });
+		const rows = await conn.pquery(
+			`SELECT i.relname AS idx, pg_get_indexdef(ix.indexrelid) AS def
+			 FROM pg_index ix JOIN pg_class i ON i.oid = ix.indexrelid
+			 JOIN pg_class t ON t.oid = ix.indrelid WHERE t.relname = $1`,
+			[tableName],
+		);
+		await conn.end();
+		const flat = (rows.find((r) => r.idx.endsWith('idx_json_pred')) || {}).def;
+		const deep = (rows.find((r) => r.idx.endsWith('idx_json_deep_pred')) || {})
+			.def;
+		// The `$.` prefix must be gone -- `->> '$.x'` would look up a key literally
+		// named `$.x`, which no row has.
+		expect(flat).to.include("->> 'x'");
+		expect(flat).to.not.include('$.');
+		// ...and a nested path needs the #>> operator.
+		expect(deep).to.include('#>>');
+		expect(deep).to.include("'{a,b}'");
+	});
+
+	it('emits NO DDL on a second sync -- no index churn and no column churn', async () => {
+		const second = await sync();
+		expect(second.errors).to.deep.equal([]);
+		expect(second.built).to.deep.equal([]);
+		// `character(36)` vs the schema's `char(36)` used to report CHANGED forever,
+		// costing a no-op ALTER plus errno-1170 index churn on the column.
+		expect(second.columnDiffs).to.deep.equal([]);
+
+		const third = await sync();
+		expect(third.built).to.deep.equal([]);
+		expect(third.columnDiffs).to.deep.equal([]);
+	});
+
+	it('stores t.uuid as character(36)', async () => {
+		const conn = await dbh({ ignoreCachedConnections: true });
+		const [col] = await conn.pquery(
+			`SELECT data_type, character_maximum_length FROM information_schema.columns
+			 WHERE table_name = $1 AND column_name = 'ref'`,
+			[tableName],
+		);
+		await conn.end();
+		expect(col.data_type).to.equal('character');
+		expect(Number(col.character_maximum_length)).to.equal(36);
+	});
+});

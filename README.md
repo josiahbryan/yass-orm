@@ -300,6 +300,17 @@ const results = await Model.search({ name: 'test' });
 ## Recent changes
 
 ---
+- 2026-08-09 (2.3.1)
+  - (fix) **Seven churn bugs from a code review of the 2.1.1–2.3.0 Postgres work** — six raised by the review, one found while verifying its fixes. All the same shape as the bug that started this work: DDL emitted on an unchanged schema, which on a large table means a metadata lock and stalled writes. Each now has a test (the review applied fixes without adding any).
+    - **Partial FULLTEXT indexes rebuilt every sync**: the `fulltext` branch of `generateCreateIndex` returned *before* appending `WHERE`, so the desired signature carried a predicate the DDL never emitted — permanently unequal, a full GIN rebuild each run.
+    - **Every MySQL FULLTEXT index carrying `textSearchConfig` rebuilt every sync** — the key was gated on `isFullText` alone, not on the dialect having the concept, so it entered the desired signature on MySQL where introspection can never report one. **Verified red/green on live MySQL (1 rebuild → 0).** This one hit the primary dialect.
+    - **Partial indexes with a JSON accessor in the predicate rebuilt every sync** (my find, not the review's): schemas spell `meta->>'$.x'`, the transformer resolves it to a bare key in the DDL, so Postgres reports `meta ->> 'x'` while the desired side kept `'$.x'`. The predicate canonicalizer now uses the same shared JSON converter as the column path, nested paths included.
+    - **Hand-scoped index names over 63 chars rebuilt every sync** — an already-prefixed name skipped the length fitting, so Postgres truncated it silently and the lookup never matched.
+    - **Partial indexes with a JSON predicate over ordinary columns rebuilt every sync** — the JSON branch tested the whole definition for `->>`, reporting `(status, priority)` as one pseudo-column.
+    - **Every `t.uuid` column reported CHANGED forever** — Postgres spells `CHAR(36)` back as `character(36)` with no diff normalization, costing a no-op ALTER plus errno-1170 index churn each sync. Affects `char(36)` link columns under `uuidLinkedIds` too.
+    - **`where` on a raw-SQL index spec was silently dropped** — no predicate, no warning. Now emitted where supported, warned where not.
+
+---
 - 2026-08-09 (2.3.0)
   - (change) **Postgres index names are now table-scoped, deterministically.** MySQL scopes index names to their table, so `users.idx_status` and `orders.idx_status` coexist; Postgres does not (an index is a relation in `pg_class`, unique per schema), so the second table to declare `idx_status` failed with `relation "idx_status" already exists` — and those are exactly the names people reuse. On Postgres the declared name is now prefixed with the table name (`users_idx_status`), extending the convention already used for the automatic `isDeleted` index. Deterministic, and idempotent: a name already starting with `<table>_` is left alone, so nothing is double-prefixed.
     - **Postgres only.** MySQL needs no prefixing. SQLite is also database-global but deliberately excluded — prefixing would rename the indexes of every existing SQLite database for a collision nobody has reported, while Postgres has no installed base (the dialect only started working in 2.1.3). New `dialect.prefixIndexNamesWithTable`, false by default.

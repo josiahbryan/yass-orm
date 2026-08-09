@@ -216,3 +216,66 @@ describe('#schemaSync errno-1170 guard leaves FULLTEXT indexes alone', () => {
 		expect(ftRow.Sub_part).to.equal(null);
 	});
 });
+
+// `textSearchConfig` is a POSTGRES concept (it selects stemming/stopword rules for
+// to_tsvector). It is a natural thing to leave in a schema def shared across
+// dialects -- and gating it on `isFullText` alone put the key into the DESIRED
+// signature on MySQL too, where introspection can never report one. Result: every
+// MySQL FULLTEXT index carrying that key was dropped and rebuilt on EVERY sync,
+// under the same metadata lock this file exists to prevent. Confirmed red before the
+// fix: this index rebuilt once per sync.
+describe('#schemaSync MySQL ignores Postgres-only textSearchConfig', () => {
+	const tableName = `yass_ts_ignore_${uuid().replace(/-/g, '')}`;
+	const indexName = 'idx_body_ft';
+
+	const schemaDef = ({ types: t }) => ({
+		table: tableName,
+		schema: { id: t.idKey, body: t.text },
+		options: {
+			indexes: {
+				[indexName]: {
+					fulltext: true,
+					cols: ['body'],
+					// Meaningless on MySQL -- and must stay harmless.
+					textSearchConfig: 'english',
+				},
+			},
+		},
+	});
+
+	before(async function beforeTsIgnoreSuite() {
+		if ((config.dialect || 'mysql') !== 'mysql') {
+			this.skip();
+			return;
+		}
+		await syncSchemaToDb(YassORM.convertDefinition(schemaDef));
+	});
+
+	after(async () => {
+		if ((config.dialect || 'mysql') !== 'mysql') {
+			return;
+		}
+		const conn = await dbh({ ignoreCachedConnections: true });
+		await conn.pquery(`DROP TABLE IF EXISTS \`${tableName}\``);
+		await conn.end();
+	});
+
+	it('does not rebuild the index on a second sync', async () => {
+		const logs = [];
+		const origLog = console.log;
+		console.log = (...args) => logs.push(args.join(' '));
+		let result;
+		try {
+			result = await syncSchemaToDb(YassORM.convertDefinition(schemaDef));
+		} finally {
+			console.log = origLog;
+		}
+
+		expect(result.errors).to.deep.equal([]);
+		expect(
+			logs.filter(
+				(l) => l.includes('(re)Creating index') && l.includes(indexName),
+			),
+		).to.deep.equal([]);
+	});
+});

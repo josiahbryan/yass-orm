@@ -119,6 +119,26 @@ describe('#schemaSync index-name scoping', () => {
 				expect(a).to.equal(b);
 			});
 
+			// An already-scoped name skips the prefixing step, but it must NOT skip the
+			// length limit: Postgres silently truncates past 63, so the catalog would
+			// report a name we never ask for -- the stale sweep drops it, the create pass
+			// re-adds it, forever.
+			it('fits an ALREADY-prefixed over-long name to the limit', () => {
+				const handScoped = `${longTable}_idx_a_very_long_hand_scoped_index_name`;
+				expect(handScoped.length).to.be.above(63);
+				const resolved = resolvePhysicalIndexName(
+					handScoped,
+					longTable,
+					postgres,
+				);
+				expect(resolved.length).to.be.at.most(63);
+				// Still deterministic, and still not double-prefixed.
+				expect(resolved).to.equal(
+					resolvePhysicalIndexName(handScoped, longTable, postgres),
+				);
+				expect(resolved.startsWith(`${longTable}_`)).to.equal(true);
+			});
+
 			it('keeps two long names distinct despite a shared prefix', () => {
 				// Plain truncation would collapse these into one name, and the second
 				// CREATE INDEX would fail as a duplicate.

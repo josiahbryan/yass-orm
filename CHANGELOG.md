@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-08-09
+
+### Fixed
+
+Seven churn bugs from a code review of the 2.1.1–2.3.0 Postgres work — six raised by the review, one found while verifying its fixes. Every one is the same shape as the bug that started this line of work: DDL emitted on a schema that had not changed, and on a large table that means a metadata lock and stalled writes. Each now has a test.
+
+- **A partial FULLTEXT index rebuilt on every sync (highest impact on Postgres).** `generateCreateIndex`'s `fulltext` branch returned *before* appending `WHERE`. Since Postgres reports `supportsPartialIndexes: true`, schema-sync put `where` into the desired signature for `{ fulltext: true, cols: [...], where: '...' }` while the DDL built an **unfiltered** index whose introspected predicate is `undefined` — permanently unequal, so a drop plus a full GIN rebuild every run.
+- **Every MySQL FULLTEXT index carrying `textSearchConfig` rebuilt on every sync.** `resolvedTextSearchConfig` was gated only on `isFullText`, not on the dialect having the concept. `textSearchConfig`/`tsConfig` on an index spec — a natural thing to leave in a def shared across dialects — or a global `config.textSearchConfig` put the key into the desired signature on **MySQL**, where introspection can never report one. Now gated on the dialect defining a default config (Postgres only). **Confirmed red/green against live MySQL: 1 rebuild per sync before, 0 after.** This one hit the primary dialect, not just Postgres.
+- **A partial index whose predicate contains a JSON accessor rebuilt on every sync** (found while verifying the review's fixes, not raised by it). Schemas spell JSON paths MySQL-style (`meta->>'$.x'`), and the query transformer resolves that to a bare key on the DDL's way out, so Postgres reports `meta ->> 'x'` — while the desired side kept `'$.x'`. The predicate canonicalizer now applies the same shared JSON conversion the index-column path uses, so the two cannot drift. Covers nested paths (`$.a.b` → `#>>'{a,b}'`) too.
+- **A hand-scoped index name over 63 characters rebuilt on every sync.** `resolvePhysicalIndexName` returned an already-`<table>_`-prefixed name verbatim, skipping `fitIdentifierToLimit` — so Postgres silently truncated it, the catalog lookup missed, the stale sweep dropped it and the create pass re-added it. The limit is now applied whether or not the name needed prefixing.
+- **A partial index with a JSON predicate over ordinary columns rebuilt on every sync.** The JSON-functional-index branch tested the **whole** `pg_get_indexdef()` string for `->>`, so `(status, priority) WHERE ((meta ->> 'x') = 'y')` was treated as a functional index and reported as one pseudo-column `"status, priority"`. It now tests only the extracted column list.
+- **Every `t.uuid` column reported CHANGED forever.** Postgres spells `CHAR(36)` back as `character(36)`, which had no diff normalization — costing a no-op `ALTER COLUMN ... TYPE CHAR(36)` every sync plus errno-1170 index churn on the column. Affects every `char(36)` link column under `uuidLinkedIds` too. Pre-existing, adjacent to the Postgres type rules added in 2.1.3.
+- **`where` on a raw-SQL index spec was silently dropped** — no predicate in the DDL and no warning, so an author believed they had a partial index and did not. Now emitted where the dialect supports it, and warned about where it does not.
+
+### Added
+
+- Tests for all seven, since the review applied fixes without adding any: partial-FULLTEXT DDL (unit + live), the MySQL `textSearchConfig` regression (live, verified red first), JSON accessors in predicates (3 unit + live, flat and nested), the over-long hand-scoped name, JSON-predicate-vs-JSON-column-list parsing (plus a guard that a genuine functional index still parses as one expression), `character(36)` idempotency and column type (live), and the raw-SQL `where` warning.
+
+MySQL suite: 729 passing, 0 failing. Dialect units: 247. Postgres: 29.
+
 ## [2.3.0] - 2026-08-09
 
 ### Changed
