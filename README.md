@@ -92,6 +92,65 @@ rely on cached reads.
 See [docs/transactions.md](docs/transactions.md) for complete dialect
 semantics, retry guidance, `findOrCreate` signatures, and the API audit.
 
+## MySQL string-literal normalization (`ANSI_QUOTES`)
+
+As of 2026-08, yass-orm rewrites double-quoted **string literals** to single-quoted
+ones on the MySQL path, so the same SQL means the same thing whether or not the
+server runs with `ANSI_QUOTES`.
+
+### Why
+
+Under default `sql_mode`, `"upm%"` is a string. Under `ANSI_QUOTES` it is an
+**identifier**. So a query written like this:
+
+```javascript
+await Model.fromSql('linkedTransactionId LIKE "upm%"');
+```
+
+succeeds against a primary and fails against an `ANSI_QUOTES` read replica with
+`ERROR 1054 unknown column 'upm%'` — routing-dependent, intermittent, and with an
+error message that points you at the schema rather than at your quoting.
+
+The normalization runs at the dialect chokepoint (`MySQLDialect.transformSql`),
+so it covers both `dbh.pquery` and `dbh.roQuery` — and therefore `Model.fromSql`,
+`Model.search`, and raw handle queries.
+
+### What it does and does not touch
+
+The rewrite **splices the original SQL source**, replacing only the double-quoted
+runs. It does not parse and reserialize, so your whitespace, keyword case, and
+comments come back byte-for-byte.
+
+| Input | Result |
+| --- | --- |
+| `... LIKE "upm%"` | rewritten to `... LIKE 'upm%'` |
+| `-- note "quoted prose"` | left alone — a quote inside a comment is prose |
+| `'say "hi"'` | left alone — content of a single-quoted string |
+| `` `we"ird` `` | left alone — content of a backticked identifier |
+| `CREATE INDEX ... meta->>"valence" ...` | left alone — DDL is never rewritten |
+| unterminated string or `/*` | left alone — input returned untouched |
+
+Escaping is handled by decoding out of the double-quote context and re-encoding
+into the single-quote one, so `"O'Brien"`, `"say ""hi"""`, `"back\\slash"` and
+`LIKE "%50\% off%"` all survive with their values intact. A naive
+search-and-replace corrupts every one of those.
+
+DDL is excluded for a text-matching reason rather than a semantic one:
+`meta->>'valence'` means the same thing as `meta->>"valence"`, but it no longer
+matches the index definition MySQL reports back, which would make `schemaSync`
+drop and recreate the index on every run.
+
+### Caveat
+
+Do **not** feed this SQL that was authored *for* `ANSI_QUOTES`. There, `"col"` is
+meant as an identifier, and it is indistinguishable from a string literal here —
+it would be rewritten to the constant `'col'`. Under default `sql_mode` that is
+already how MySQL reads it, so this is a no-op for SQL written against a
+default-mode primary.
+
+The portable habit is still the best one: **use single quotes for strings.** See
+[Best Practice for Portable SQL](#best-practice-for-portable-sql).
+
 ## SQLite Support
 
 As of 2026-02, yass-orm supports SQLite as an alternative to MySQL/MariaDB. This enables local development, testing, and lightweight deployments without a MySQL server.
