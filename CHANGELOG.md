@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **MySQL: double-quoted string literals are normalized to single quotes so the same SQL means the same thing under `ANSI_QUOTES`.** MySQL was the only dialect with no SQL normalization pass — `MySQLDialect.transformSql` was a literal identity function — so caller-authored SQL like `... LIKE "upm%"` reached the server byte-for-byte. Under default `sql_mode` that is a string; under `ANSI_QUOTES` it is an **identifier**, so the query succeeds on a primary and dies with `ERROR 1054 unknown column 'upm%'` on an `ANSI_QUOTES` read replica — routing-dependent, intermittent, and with an error message that points the reader at the schema rather than at quoting. New `lib/sql-transform/MySQLSqlTransformer.js` rewrites `double_quote_string` nodes on the parsed AST, **decoding out of the double-quote context and re-encoding into the single-quote one** rather than string-replacing across the encoding boundary (a naive escape corrupts `""` — one `"` in double-quote context, two in single — with no error).
+
+  It is deliberately conservative and fail-open at every arm: SQL with no `"` at all, SQL carrying comments (`--`, `/*`, `#` — `sqlify` drops them), DDL and any non-DML statement, SQL that parses but contains no double-quoted string, and SQL that does not parse are all returned **byte-identical**. Only a DML statement that actually contains a double-quoted string literal is reserialized.
+
+  Known limitation, by design: SQL authored *for* `ANSI_QUOTES`, where `"col"` is meant as an identifier, parses as a string literal and would be rewritten to the constant `'col'`. That is already how MySQL reads it under default `sql_mode`, so it is a no-op for SQL written against a default-mode primary — but do not feed this ANSI-authored SQL.
+
+### Added
+
+- 25 tests in `lib/sql-transform/test/MySQLSqlTransformer.test.js`, including canaries for every shape a naive rewrite mangles: `"O'Brien"` (invalid SQL), `"say ""hi"""` (silent corruption), `"back\\slash"` (double-escaping), `LIKE "%50\% off%"` (escaped wildcard), `!= ""`, `:named` placeholder coexistence, multi-statement, and the real production call site `LIKE "upm%"`. Plus a regression test that index DDL carrying a double-quoted JSON path is left alone — `sqlify` hoists the `COLLATE` out of the expression parens and rewrites the path, which made schema-sync drop and recreate the index on every run.
+
 ## [2.3.1] - 2026-08-09
 
 ### Fixed
