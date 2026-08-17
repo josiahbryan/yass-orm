@@ -45,9 +45,9 @@ describe('#YASS-ORM normalizeSearchOptions', () => {
 		});
 
 		it('defaults orderDir to ASC when orderBy is given alone', () => {
-			expect(normalizeSearchOptions({ orderBy: 'createdAt' }).orderDir).to.equal(
-				'ASC',
-			);
+			expect(
+				normalizeSearchOptions({ orderBy: 'createdAt' }).orderDir,
+			).to.equal('ASC');
 		});
 
 		it('is idempotent — normalizing its own output is a no-op', () => {
@@ -56,7 +56,9 @@ describe('#YASS-ORM normalizeSearchOptions', () => {
 		});
 
 		it('honours an explicit limitOne inside the object', () => {
-			expect(normalizeSearchOptions({ limitOne: true }).limitOne).to.equal(true);
+			expect(normalizeSearchOptions({ limitOne: true }).limitOne).to.equal(
+				true,
+			);
 		});
 	});
 
@@ -64,7 +66,11 @@ describe('#YASS-ORM normalizeSearchOptions', () => {
 		// Test the RULE, not the three symptoms we happen to know about.
 		[
 			{ label: 'pallas-era typo', opts: { zzzNope: 1 }, key: 'zzzNope' },
-			{ label: 'matm sortBy dialect', opts: { sortBy: ['-datetime'] }, key: 'sortBy' },
+			{
+				label: 'matm sortBy dialect',
+				opts: { sortBy: ['-datetime'] },
+				key: 'sortBy',
+			},
 			{ label: 'mongo-style sort', opts: { sort: { score: -1 } }, key: 'sort' },
 		].forEach(({ label, opts, key }) => {
 			it(`throws naming '${key}' (${label})`, () => {
@@ -79,6 +85,18 @@ describe('#YASS-ORM normalizeSearchOptions', () => {
 				/limitOne, limit, offset, orderBy, orderDir/,
 			);
 		});
+
+		it("throws naming 'sortBy' even when its value is undefined (spread footgun)", () => {
+			expect(() => normalizeSearchOptions({ sortBy: undefined }))
+				.to.throw(Error)
+				.that.matches(/'sortBy'/);
+		});
+
+		it("throws naming 'sort' when undefined alongside a valid key (spread footgun)", () => {
+			expect(() => normalizeSearchOptions({ sort: undefined, limit: 5 }))
+				.to.throw(Error)
+				.that.matches(/'sort'/);
+		});
 	});
 
 	describe('value validation', () => {
@@ -89,8 +107,9 @@ describe('#YASS-ORM normalizeSearchOptions', () => {
 		});
 
 		it('rejects a bad orderDir', () => {
-			expect(() => normalizeSearchOptions({ orderBy: 'a', orderDir: 'sideways' }))
-				.to.throw(/orderDir/);
+			expect(() =>
+				normalizeSearchOptions({ orderBy: 'a', orderDir: 'sideways' }),
+			).to.throw(/orderDir/);
 		});
 
 		it('rejects offset without limit (SQL cannot express it)', () => {
@@ -103,10 +122,24 @@ describe('#YASS-ORM normalizeSearchOptions', () => {
 			);
 		});
 
+		it('does not throw when orderDir is explicitly undefined (value-level absence)', () => {
+			const result = normalizeSearchOptions({
+				orderBy: 'a',
+				orderDir: undefined,
+			});
+			expect(result.orderDir).to.equal('ASC');
+		});
+
+		it('does not throw when limit is explicitly undefined alongside limitOne', () => {
+			expect(() =>
+				normalizeSearchOptions({ limitOne: true, limit: undefined }),
+			).to.not.throw();
+		});
+
 		it('rejects limitOne combined with limit', () => {
-			expect(() => normalizeSearchOptions({ limitOne: true, limit: 5 })).to.throw(
-				/limitOne/,
-			);
+			expect(() =>
+				normalizeSearchOptions({ limitOne: true, limit: 5 }),
+			).to.throw(/limitOne/);
 		});
 	});
 
