@@ -174,4 +174,116 @@ describe('#YASS-ORM Model.search() options', function suite() {
 			expect(rows.map((r) => r.sortKey)).to.deep.equal([24, 23]);
 		});
 	});
+
+	// BDL-2646 review FIX 4: the tests above insert rows in ALREADY-SORTED
+	// order (sortKey 0..24, ascending, by insertion/id order), so a query that
+	// returns them unordered — e.g. by primary-key/insertion order, which
+	// MySQL commonly does with no ORDER BY — can still LOOK sorted for ASC and
+	// happens to look reverse-sorted for a small DESC page. That is not proof
+	// `orderBy`/`orderDir` are wired at the MODEL layer; it is proof the dbh
+	// layer emits the right SQL (asserted elsewhere, on generated SQL text).
+	// This block seeds a JUMBLED insertion order in its own table so natural
+	// insertion order and requested order provably DIFFER, and asserts on the
+	// hydrated INSTANCES `search()` returns — the thing callers actually
+	// depend on — not on generated SQL.
+	describe('acceptance criterion 3/6 — orderBy/orderDir actually order the HYDRATED INSTANCES (jumbled seed)', () => {
+		let JumbledWidget;
+
+		// Deliberately NOT sorted, NOT reverse-sorted, and not a simple rotation
+		// — a false pass from "returns in insertion order" or "returns in
+		// reverse insertion order" is impossible against this sequence.
+		const JUMBLED_SORT_KEYS = [7, 2, 9, 0, 5, 8, 1, 6, 3, 4];
+
+		before(async () => {
+			await conn.query('DROP TABLE IF EXISTS yass_search_widget_jumbled');
+			await conn.query(`
+				CREATE TABLE yass_search_widget_jumbled (
+					id INT PRIMARY KEY AUTO_INCREMENT,
+					name VARCHAR(255),
+					sortKey INT,
+					isDeleted TINYINT DEFAULT 0
+				) ENGINE=InnoDB
+			`);
+			// eslint-disable-next-line no-restricted-syntax
+			for (const sortKey of JUMBLED_SORT_KEYS) {
+				// eslint-disable-next-line no-await-in-loop
+				await conn.pquery(
+					'INSERT INTO yass_search_widget_jumbled (name, sortKey, isDeleted) VALUES (:name, :sortKey, 0)',
+					{ name: `jw-${sortKey}`, sortKey },
+				);
+			}
+
+			// NOTE: intentionally a NAMED class extending loadDefinition(), not a bare
+			// `YassORM.loadDefinition(...)` assignment like `Widget` above. The
+			// object-instance cache in lib/obj.js (`_getClassCache`) keys purely on
+			// `this.name`, and `loadDefinition()`'s returned class expression is
+			// anonymous (`this.name === ''`) since it's returned through a function
+			// call rather than a direct `const X = class {}` — JS only infers a name
+			// in the latter case. Two anonymous loadDefinition() classes therefore
+			// SHARE one cache bucket keyed by numeric id, and this table's ids
+			// (1..10, fresh AUTO_INCREMENT) collide with Widget's (1..25) already
+			// cached above, silently handing back stale Widget instances. A named
+			// class gets its own `this.name` and its own bucket, matching the
+			// documented ES6 usage (`class MyModel extends loadDefinition(...) {}`).
+			class JumbledWidgetModel extends YassORM.loadDefinition(
+				({ types: t }) => ({
+					table: 'yass_search_widget_jumbled',
+					schema: {
+						id: t.idKey,
+						name: t.string,
+						sortKey: t.int,
+					},
+				}),
+			) {}
+			JumbledWidget = JumbledWidgetModel;
+		});
+
+		after(async () => {
+			await conn.query('DROP TABLE IF EXISTS yass_search_widget_jumbled');
+		});
+
+		it('confirms the seed is genuinely jumbled, not accidentally sorted (control)', () => {
+			const ascSorted = [...JUMBLED_SORT_KEYS].sort((a, b) => a - b);
+			expect(JUMBLED_SORT_KEYS).to.not.deep.equal(ascSorted);
+			expect(JUMBLED_SORT_KEYS).to.not.deep.equal([...ascSorted].reverse());
+		});
+
+		it('orderDir ASC returns hydrated instances in ascending sortKey order', async () => {
+			const rows = await JumbledWidget.search(
+				{ isDeleted: 0 },
+				{ orderBy: 'sortKey', orderDir: 'ASC' },
+			);
+			expect(rows).to.have.length(JUMBLED_SORT_KEYS.length);
+			rows.forEach((row) => expect(row).to.be.instanceOf(JumbledWidget));
+			expect(rows.map((r) => r.sortKey)).to.deep.equal([
+				0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+			]);
+		});
+
+		it('orderDir DESC returns hydrated instances in descending sortKey order', async () => {
+			const rows = await JumbledWidget.search(
+				{ isDeleted: 0 },
+				{ orderBy: 'sortKey', orderDir: 'DESC' },
+			);
+			expect(rows).to.have.length(JUMBLED_SORT_KEYS.length);
+			rows.forEach((row) => expect(row).to.be.instanceOf(JumbledWidget));
+			expect(rows.map((r) => r.sortKey)).to.deep.equal([
+				9, 8, 7, 6, 5, 4, 3, 2, 1, 0,
+			]);
+		});
+
+		it('ASC and DESC results are true reverses of each other, not two coincidental matches', async () => {
+			const asc = await JumbledWidget.search(
+				{ isDeleted: 0 },
+				{ orderBy: 'sortKey', orderDir: 'ASC' },
+			);
+			const desc = await JumbledWidget.search(
+				{ isDeleted: 0 },
+				{ orderBy: 'sortKey', orderDir: 'DESC' },
+			);
+			expect(desc.map((r) => r.sortKey)).to.deep.equal(
+				[...asc.map((r) => r.sortKey)].reverse(),
+			);
+		});
+	});
 });
