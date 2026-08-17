@@ -1,4 +1,4 @@
-import { expectType } from 'tsd';
+import { expectType, expectError } from 'tsd';
 import { loadDefinition, DatabaseObject, type FinderResult } from 'yass-orm';
 
 class MyModel extends loadDefinition('./defs/my-model') {
@@ -26,6 +26,22 @@ expectType<Promise<MyModel>>(
 // search(): array vs single row based on limitOne flag
 expectType<Promise<MyModel[]>>(MyModel.search({ id: 'id_123' }));
 expectType<Promise<MyModel | null>>(MyModel.search({ id: 'id_123' }, true));
+
+// BDL-2646: options form returns an ARRAY of instances, never a bare instance.
+expectType<Promise<MyModel[]>>(
+	MyModel.search({ id: 'id_123' }, { limit: 20, orderBy: 'id', orderDir: 'DESC' }),
+);
+expectType<Promise<MyModel[]>>(MyModel.search({ id: 'id_123' }, { limit: 5 }));
+expectType<Promise<MyModel[]>>(
+	MyModel.search({ id: 'id_123' }, { limit: 5, offset: 10 }),
+);
+
+// An unsupported key must not type-check. `expectError` is the tsd
+// negative control: if the overload were `Record<string, unknown>` this
+// line would silently pass and the test would measure nothing.
+expectError(MyModel.search({ id: 'id_123' }, { sortBy: ['-datetime'] }));
+expectError(MyModel.search({ id: 'id_123' }, { sort: { score: -1 } }));
+expectError(MyModel.search({ id: 'id_123' }, { orderDir: 'sideways' }));
 
 // withDbh() overloads
 expectType<Promise<number>>(

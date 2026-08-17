@@ -1,5 +1,6 @@
 /* eslint-disable no-unused-expressions */
 /* global it, describe */
+const path = require('path');
 const { expect } = require('chai');
 const {
 	singularize,
@@ -7,6 +8,7 @@ const {
 	enumLiteralMembers,
 	mapFieldToTsType,
 	mapFieldToZodSchema,
+	generateTypesContent,
 } = require('../lib/generate-types');
 
 describe('#generate-types singularization', () => {
@@ -73,6 +75,24 @@ describe('#generate-types singularization', () => {
 			expect(toPascalCase(singularize('user_devices'))).to.equal('UserDevice');
 			expect(toPascalCase(singularize('chat_inboxes'))).to.equal('ChatInbox');
 		});
+	});
+});
+
+describe('#generate-types search() overload emission (BDL-2646)', () => {
+	// `generateTypesContent` is the function that renders the per-model .d.ts,
+	// including the `search()` static overloads at lib/generate-types.js:805-812.
+	// Reuse the existing nested-schema fixture rather than inventing a new one.
+	const fixturePath = path.join(
+		__dirname,
+		'fixtures',
+		'test-nested-schema.js',
+	);
+
+	it('emits the SearchOptions overload for search()', () => {
+		const generated = generateTypesContent(fixturePath);
+		expect(generated).to.match(
+			/search\(\s*query: Record<string, unknown>,\s*options: import\('yass-orm'\)\.SearchOptions/,
+		);
 	});
 });
 

@@ -52,6 +52,20 @@ export type TxOptions = {
 	tx?: DbHandle;
 };
 
+/**
+ * Options accepted by `search()` in place of the legacy boolean `limitOne`.
+ * Any key outside this set throws at runtime, naming the key.
+ * See also `Model.find()` — a Feathers-style `$limit`/`$skip`/`$sort` finder
+ * that returns RAW ROWS rather than hydrated instances.
+ */
+export type SearchOptions = {
+	limitOne?: boolean;
+	limit?: number;
+	offset?: number;
+	orderBy?: string;
+	orderDir?: 'ASC' | 'DESC' | 'asc' | 'desc';
+};
+
 export type PatchWithNonceRetryOptions = {
 	logger?: { warn: (...args: any[]) => void; error: (...args: any[]) => void };
 	verbose?: boolean;
@@ -165,7 +179,11 @@ export type DbHandle = {
 	search: (
 		tableAndIdField: string,
 		fields?: AnyRecord,
-		limitOne?: boolean,
+		limitOne?: boolean | SearchOptions,
+		options?: {
+			silenceErrors?: boolean;
+			silenceRetryableTransactionErrors?: boolean;
+		},
 	) => Promise<any>;
 	find: (
 		tableAndIdField: string,
@@ -420,6 +438,14 @@ export interface DatabaseObjectStatic<
 		options?: TxOptions,
 	): Promise<Array<TInstance>>;
 
+	/** Search with explicit bounds — always resolves to an ARRAY. */
+	search(
+		fields: AnyRecord,
+		options: SearchOptions,
+		promisePoolMapConfig?: PromisePoolMapConfig & TxOptions,
+		txOptions?: TxOptions,
+	): Promise<Array<TInstance>>;
+
 	search(
 		fields: AnyRecord,
 		limitOne: true,
@@ -618,6 +644,15 @@ export declare class DatabaseObject {
 		limitOne?: false,
 		promisePoolMapConfig?: PromisePoolMapConfig & TxOptions,
 		options?: TxOptions,
+	): Promise<Array<InstanceType<T>>>;
+
+	/** Search with explicit bounds — always resolves to an ARRAY. */
+	static search<T extends typeof DatabaseObject>(
+		this: T,
+		fields: AnyRecord,
+		options: SearchOptions,
+		promisePoolMapConfig?: PromisePoolMapConfig & TxOptions,
+		txOptions?: TxOptions,
 	): Promise<Array<InstanceType<T>>>;
 
 	static search<T extends typeof DatabaseObject>(
