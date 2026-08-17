@@ -1,36 +1,36 @@
 /* eslint-disable no-unused-expressions */
 /* global describe, it, before, after */
-const path = require('path');
-
-// NOTE: deviates from the task brief's literal placement of this line (it had
-// this inside `before()`, AFTER requiring '../lib' below). `lib/config.js`
-// reads `process.env.YASS_CONFIG` at require-time, synchronously, and caches
-// the result — so setting it inside `before()` is too late: by then
-// `require('../lib')` below has already resolved `config` against the
-// default (MySQL root@localhost, no password) config, which is what
-// produced the "Access denied for user 'root'@'localhost'" failures in the
-// initial red run. Setting it here, before any lib require, is what actually
-// routes this suite's connections to SQLite.
-process.env.YASS_CONFIG = path.join(__dirname, '..', '.yass-orm.sqlite.js');
-
-const fs = require('fs');
 const { expect } = require('chai');
 const YassORM = require('../lib');
-const { dbh, closeAllConnections } = require('../lib/dbh');
-const config = require('../lib/config');
+const { dbh } = require('../lib/dbh');
 
-// Deviation #2 from the brief's literal test code: the brief opened its own
-// connection with an EXPLICIT `filename: tempDb` override + `ignoreCachedConnections:
-// true`. `Model.search()` (via `this._runOn` -> `retryIfConnectionLost`) always
-// resolves the connection through `dbh()` with NO override, which resolves the
-// filename from `config` (`.yass-orm.sqlite.js` -> `/tmp/yass-orm-test.sqlite`).
-// A test connection opened against a DIFFERENT file creates the table somewhere
-// the model layer's connection never looks, producing "no such table:
-// yass_search_widget" for every Model.search() call while direct `conn.query()`
-// calls (used only in setup) succeed. Fixed by connecting to the SAME
-// (default, config-resolved) file the model layer will use.
-const tempDb = config.filename || path.join('/tmp', 'yass-orm-test.sqlite');
-
+// NOTE: this suite runs against the SAME (default, MySQL) dialect as every
+// other file in `test/**/*.test.js` — it deliberately does NOT try to force
+// SQLite for just this file via `process.env.YASS_CONFIG`.
+//
+// `lib/config.js` reads `process.env.YASS_CONFIG` at require-time and
+// destructures the resolved values into module-level consts inside
+// `lib/dbh.js` (`configDialect`, `configFilename`, ...) the FIRST time
+// `lib/dbh.js` is required in the process. Under the full multi-file `mocha
+// test/**/*.test.js` glob, some other test file requires `../lib/dbh` before
+// this one is required (mocha requires every matching file up front), so by
+// the time this file's top-level code ran, the dialect was already latched to
+// whatever the first-required file resolved — setting the env var here was a
+// no-op that only ever worked when this file happened to run standalone.
+// `Model.search()` always resolves its connection through `dbh()` with no
+// per-call override (see obj.js `_runOn` / `retryIfConnectionLost`), so there
+// is no way to hand it a different dialect from inside a single test file in
+// a shared process. Using MySQL (the suite default, and the dialect every
+// other `test/obj.*.test.js` file already exercises) sidesteps the whole
+// problem instead of racing it.
+//
+// The `after()` hook also no longer calls the process-wide
+// `closeAllConnections()` — that closed EVERY cached pool, including the ones
+// later test files in the same `mocha` run depend on, which is what produced
+// the cascading "pool is closed" failures across ~20 unrelated tests once
+// this suite's `after()` ran. Every other file in this suite (e.g.
+// `obj.transaction.test.js`) only drops its own tables in `after()` and
+// leaves the shared cached pool alone; this file now does the same.
 describe('#YASS-ORM Model.search() options', function suite() {
 	this.timeout(20000);
 
@@ -43,19 +43,19 @@ describe('#YASS-ORM Model.search() options', function suite() {
 		await conn.query('DROP TABLE IF EXISTS yass_search_widget');
 		await conn.query(`
 			CREATE TABLE yass_search_widget (
-				id INTEGER PRIMARY KEY AUTOINCREMENT,
-				name TEXT,
-				sortKey INTEGER,
-				isDeleted INTEGER DEFAULT 0,
-				createdBy INTEGER NULL,
-				createdAt TEXT NULL,
-				updatedBy INTEGER NULL,
-				updatedAt TEXT NULL
-			)
+				id INT PRIMARY KEY AUTO_INCREMENT,
+				name VARCHAR(255),
+				sortKey INT,
+				isDeleted TINYINT DEFAULT 0,
+				createdBy INT NULL,
+				createdAt DATETIME NULL,
+				updatedBy INT NULL,
+				updatedAt DATETIME NULL
+			) ENGINE=InnoDB
 		`);
 		for (let i = 0; i < 25; i++) {
 			// eslint-disable-next-line no-await-in-loop
-			await conn.query(
+			await conn.pquery(
 				'INSERT INTO yass_search_widget (name, sortKey, isDeleted) VALUES (:name, :sortKey, 0)',
 				{ name: `w-${i}`, sortKey: i },
 			);
@@ -72,11 +72,8 @@ describe('#YASS-ORM Model.search() options', function suite() {
 	});
 
 	after(async () => {
-		await closeAllConnections();
-		try {
-			fs.unlinkSync(tempDb);
-		} catch (err) {
-			// ignore
+		if (conn) {
+			await conn.query('DROP TABLE IF EXISTS yass_search_widget');
 		}
 	});
 

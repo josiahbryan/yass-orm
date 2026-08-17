@@ -92,6 +92,60 @@ rely on cached reads.
 See [docs/transactions.md](docs/transactions.md) for complete dialect
 semantics, retry guidance, `findOrCreate` signatures, and the API audit.
 
+## Querying
+
+### `Model.search(fields, options)` — bounding and ordering
+
+The second positional accepts either the legacy boolean `limitOne`, or an
+options object:
+
+```js
+await Model.search(
+  { user, isDeleted: false },
+  { limit: 20, offset: 0, orderBy: 'createdAt', orderDir: 'DESC' },
+);
+```
+
+Supported keys — **and only these**: `limitOne`, `limit`, `offset`, `orderBy`,
+`orderDir`. Anything else **throws**, naming the key:
+
+```
+yass-orm search(): unknown option 'sortBy'. Supported: limitOne, limit, offset, orderBy, orderDir.
+```
+
+`orderBy` must name a real column on the model (validated against the schema,
+not just any string); `orderDir` must be `ASC` or `DESC` (case-insensitive);
+`limit`/`offset` must be non-negative integers; `offset` requires `limit`
+(SQL cannot express one without the other).
+
+**Return shape — read this before you write `{ limit: 1 }`.** The options
+form **always resolves to an array**, even when `limit: 1` narrows it to one
+element. `{ limit: 1 }` is a *one-element array*, not a bare instance — that
+distinction is exactly the bug this vocabulary was built to fix, and it is
+the thing a future caller will get wrong if this paragraph isn't read. Use
+`limitOne: true` (or `searchOne()`) when you want a single object or `null`
+back directly:
+
+```js
+const [first] = await Model.search({ user }, { limit: 1, orderBy: 'createdAt' }); // array
+const only = await Model.search({ user }, { limitOne: true });                     // single instance or null
+const only2 = await Model.searchOne({ user });                                     // same as above
+```
+
+**Not supported, and will throw naming the unknown key:** `sortBy: ['-col']`
+and `sort: { col: -1 }`. Those are dialects from other ORMs (and from
+downstream code that has reached for them before) — they are not aliases for
+`orderBy`/`orderDir` and will not be silently translated.
+
+#### Related: `Model.find(query, opts)`
+
+`find()` (`lib/finder.js`) is a separate, older Feathers-style finder taking
+`$limit` / `$skip` / `$sort`. It is **not** a drop-in replacement for
+`search()`'s options form: it returns **raw rows, not hydrated model
+instances** (see `index.d.ts` for the documented return type). Prefer
+`search()` with the options above unless you specifically want raw rows and
+the Feathers-style query shape.
+
 ## MySQL string-literal normalization (`ANSI_QUOTES`)
 
 As of 2026-08, yass-orm rewrites double-quoted **string literals** to single-quoted
