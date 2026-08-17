@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-08-17
+
+### Added
+
+- **`Model.search(fields, options)` now accepts a real options object — `{ limitOne, limit, offset, orderBy, orderDir }` — and throws on anything else.** The second positional was a bare `limitOne` boolean, so the natural-looking `Model.search(fields, { limit: 20, orderBy: 'createdAt' })` passed a truthy **object** into the boolean slot: the emitted SQL was `limit 1` with **no ORDER BY at all**, and the return value was a **single instance instead of an array**. No error, no warning — `limit` and `orderBy` were read by nothing. Three mutually incompatible dialects (`orderBy`/`orderDir`, `sortBy: ['-col']`, `sort: {col:-1}`) had grown up across callers and **none of them had ever worked**.
+
+  `limitOne` (boolean, `undefined`, and the omitted form) is unchanged and byte-identical on the old path, so every existing caller is unaffected. `orderBy` is validated against the model's own schema field list and emitted through `escapeId`, so caller text is never interpolated into SQL; `orderDir` accepts only `ASC`/`DESC` case-insensitively; `limit` and `offset` must be non-negative integers. **Unknown or unusable keys throw, naming the offending key and listing the supported set** — the previous behaviour was to silently do something else, which is the whole reason this exists. `Model.find()` (`lib/finder.js`) remains the separate Feathers-style `$limit`/`$skip`/`$sort` surface, and still returns raw rows rather than hydrated instances.
+
+  Known gap, deliberately out of scope: option keys smuggled into the **fields** object (`search({ user, sortBy: 'label' })`) are dropped silently by `deflateValues`, which skips any key absent from the schema. The new validator never sees them.
+
 ### Fixed
 
 - **MySQL: double-quoted string literals are normalized to single quotes so the same SQL means the same thing under `ANSI_QUOTES`.** MySQL was the only dialect with no SQL normalization pass — `MySQLDialect.transformSql` was a literal identity function — so caller-authored SQL like `... LIKE "upm%"` reached the server byte-for-byte. Under default `sql_mode` that is a string; under `ANSI_QUOTES` it is an **identifier**, so the query succeeds on a primary and dies with `ERROR 1054 unknown column 'upm%'` on an `ANSI_QUOTES` read replica — routing-dependent, intermittent, and with an error message that points the reader at the schema rather than at quoting. New `lib/sql-transform/MySQLSqlTransformer.js` lexes the statement and rewrites every double-quoted string literal, **decoding out of the double-quote context and re-encoding into the single-quote one** rather than string-replacing across the encoding boundary (a naive escape corrupts `""` — one `"` in double-quote context, two in single — with no error).
