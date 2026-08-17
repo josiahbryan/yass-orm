@@ -43,6 +43,24 @@ expectError(MyModel.search({ id: 'id_123' }, { sortBy: ['-datetime'] }));
 expectError(MyModel.search({ id: 'id_123' }, { sort: { score: -1 } }));
 expectError(MyModel.search({ id: 'id_123' }, { orderDir: 'sideways' }));
 
+// BDL-2646 fix round 1: `limitOne: true` INSIDE the options object must
+// discriminate to a single instance (or null) — matching Task 3's runtime,
+// which returns a single row/null for exactly this shape. Getting this
+// wrong is the unsafe direction: a caller would type-check `.map()`/`.length`
+// on a green build and crash at runtime on a single object or null.
+expectType<Promise<MyModel | null>>(
+	MyModel.search({ id: 'id_123' }, { limitOne: true }),
+);
+expectType<Promise<MyModel | null>>(
+	MyModel.search({ id: 'id_123' }, { limitOne: true, limit: 5 }),
+);
+// Negative control on the discrimination itself: WITHOUT `limitOne: true`,
+// the exact same other keys must still type as an ARRAY, never a bare
+// instance. If the discriminating overload were too greedy (e.g. matched on
+// `limit` alone) this would silently narrow to `MyModel | null` and the
+// test would measure nothing.
+expectType<Promise<MyModel[]>>(MyModel.search({ id: 'id_123' }, { limit: 5 }));
+
 // withDbh() overloads
 expectType<Promise<number>>(
 	MyModel.withDbh(async (dbh, table) => {

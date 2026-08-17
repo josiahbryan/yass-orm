@@ -438,6 +438,19 @@ export interface DatabaseObjectStatic<
 		options?: TxOptions,
 	): Promise<Array<TInstance>>;
 
+	/**
+	 * Search with explicit bounds AND `limitOne: true` in the same options
+	 * object — resolves to a SINGLE instance (or null), not an array.
+	 * Must come before the general `SearchOptions` overload below so the
+	 * `limitOne: true` literal discriminates correctly.
+	 */
+	search(
+		fields: AnyRecord,
+		options: SearchOptions & { limitOne: true },
+		promisePoolMapConfig?: PromisePoolMapConfig & TxOptions,
+		txOptions?: TxOptions,
+	): Promise<TInstance | null>;
+
 	/** Search with explicit bounds — always resolves to an ARRAY. */
 	search(
 		fields: AnyRecord,
@@ -645,6 +658,20 @@ export declare class DatabaseObject {
 		promisePoolMapConfig?: PromisePoolMapConfig & TxOptions,
 		options?: TxOptions,
 	): Promise<Array<InstanceType<T>>>;
+
+	/**
+	 * Search with explicit bounds AND `limitOne: true` in the same options
+	 * object — resolves to a SINGLE instance (or null), not an array.
+	 * Must come before the general `SearchOptions` overload below so the
+	 * `limitOne: true` literal discriminates correctly.
+	 */
+	static search<T extends typeof DatabaseObject>(
+		this: T,
+		fields: AnyRecord,
+		options: SearchOptions & { limitOne: true },
+		promisePoolMapConfig?: PromisePoolMapConfig & TxOptions,
+		txOptions?: TxOptions,
+	): Promise<InstanceType<T> | null>;
 
 	/** Search with explicit bounds — always resolves to an ARRAY. */
 	static search<T extends typeof DatabaseObject>(

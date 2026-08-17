@@ -94,6 +94,25 @@ describe('#generate-types search() overload emission (BDL-2646)', () => {
 			/search\(\s*query: Record<string, unknown>,\s*options: import\('yass-orm'\)\.SearchOptions/,
 		);
 	});
+
+	it('emits the discriminating `SearchOptions & { limitOne: true }` overload BEFORE the general array overload (fix round 1)', () => {
+		const generated = generateTypesContent(fixturePath);
+		const discriminatingIdx = generated.indexOf(
+			"options: import('yass-orm').SearchOptions & { limitOne: true }",
+		);
+		const generalIdx = generated.indexOf(
+			"options: import('yass-orm').SearchOptions,",
+		);
+		expect(discriminatingIdx, 'discriminating overload must be present').to.be.greaterThan(-1);
+		expect(generalIdx, 'general array overload must be present').to.be.greaterThan(-1);
+		expect(discriminatingIdx).to.be.lessThan(generalIdx);
+		// The discriminating overload must resolve to a single instance, not an array.
+		const discriminatingBlock = generated.slice(
+			discriminatingIdx,
+			generalIdx,
+		);
+		expect(discriminatingBlock).to.match(/\): Promise<\w+Instance \| null>;/);
+	});
 });
 
 // A def may list `null` as an enum value so it becomes the column default:
