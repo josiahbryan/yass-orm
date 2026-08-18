@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-08-18
+
+### Fixed
+
+- **generate-types: description text is now escaped in emitted `.describe()`
+  literals (BDL-2852).** The Zod emitter built its description literal by hand
+  (`description.replace(/'/g, "\\'")`), which escapes apostrophes and nothing
+  else. Any `.description()` containing a raw newline terminated the
+  single-quoted literal mid-string, so the model's own generated `.zod.ts`
+  stopped parsing — measured downstream at 1,189 errors, 100% TS1xxx PARSE
+  errors (TS1002/TS1005/TS1127/TS1434), zero type errors. It was not
+  newline-specific either: a backslash immediately before a quote closed the
+  string just as effectively. Emission now goes through `JSON.stringify` (plus
+  explicit U+2028/U+2029 escaping, which are legal in JSON but are JS
+  LineTerminators) at all four `.describe()` sites. Fixed by ESCAPING, not by
+  restricting the input — multi-line `.description()` text is documentation we
+  want authors to write.
+- **generate-types: `.d.ts` JSDoc emission no longer breaks on the same input.**
+  It consumes the same description string; an end-of-comment sequence in the
+  text closed the block comment early, and raw newlines produced unprefixed
+  continuation lines.
+
+### Note for anyone repinning rubber
+
+This release exists as a distinct version ON PURPOSE. `scripts/update-yass-orm.sh`
+verifies an install by comparing the installed version against the version the
+pin resolves to, so a behaviour change landed WITHOUT a version bump makes that
+verifier vacuous — it prints the same ✔ whether or not the new code arrived.
+
 ## [2.4.0] - 2026-08-17
 
 ### Added
