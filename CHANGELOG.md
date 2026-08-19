@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.2] - 2026-08-19
+
+### Fixed
+
+- **MySQLDialect: column COMMENT over MySQL/MariaDB's 1024-char cap no longer
+  kills the whole CREATE TABLE (ER_TOO_LONG_FIELD_COMMENT, errno 1629).**
+  `generateFieldSpec()` emitted a field's `.describe()` text verbatim into
+  `COMMENT '...'`. A description over 1024 chars is a hard server-side limit,
+  not a yass-orm one, and it fails the **entire statement**, not just the
+  offending column — so one long docstring on one field blocked every table in
+  that CREATE. It also only surfaces against a **fresh** database: a box that
+  already has the table never re-issues the CREATE, so this shipped invisibly
+  and only showed up syncing a new environment (staging, a fresh CI box, a new
+  hire's laptop). Two real fields hit it in the wild:
+  `bc_agent_grid_entries.executorKind` (1404 chars) and
+  `bc_agent_messages.deliveredAt`. Fixed by truncating to
+  `MAX_MYSQL_COMMENT_LEN` (1020 — 1024 less 4 chars for the `...` ellipsis and
+  a safety margin) plus `'...'`, **before** quote-escaping (escaping only grows
+  the string, so truncating after would still be able to exceed the cap on a
+  comment with many embedded quotes). Long-form architectural doc-comments are
+  wanted, not an error condition — this fixes it by truncating, not by
+  rejecting the input.
+
+### Researched, not changed
+
+- **Postgres and SQLite do not have this bug.** `PostgresDialect.generateFieldSpec()`
+  does not emit column comments at all (no `COMMENT ON COLUMN`), so there is
+  nothing to overflow — Postgres itself has no meaningful length cap on
+  `COMMENT ON COLUMN` (stored as unbounded `text`) if that gets added later.
+  `SQLiteDialect.generateFieldSpec()`'s description branch is an explicit
+  no-op (SQLite has no column-comment metadata concept); even a literal SQL
+  comment would only be bounded by `SQLITE_MAX_SQL_LENGTH` (~1MB default),
+  nowhere near a realistic docstring.
+
 ## [2.4.1] - 2026-08-18
 
 ### Fixed

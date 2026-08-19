@@ -413,6 +413,10 @@ const results = await Model.search({ name: 'test' });
 ## Recent changes
 
 ---
+- 2026-08-19 (2.4.2)
+  - (fix) **MySQLDialect: column `COMMENT` over MySQL/MariaDB's 1024-char cap killed the entire `CREATE TABLE`** (`ER_TOO_LONG_FIELD_COMMENT`, errno 1629), not just the one column — and only against a **fresh** database, since a box that already has the table never re-issues the `CREATE`. Two real fields hit it: `bc_agent_grid_entries.executorKind` (1404 chars) and `bc_agent_messages.deliveredAt`. `generateFieldSpec()` now truncates any `.describe()` text over `MAX_MYSQL_COMMENT_LEN` (1020) to `1020 chars + '...'`, applied **before** quote-escaping (escaping only grows the string). Postgres and SQLite were checked and do not have this bug: Postgres's `generateFieldSpec()` doesn't emit column comments at all, and SQLite's description branch is an explicit no-op.
+
+---
 - 2026-08-09 (2.3.1)
   - (fix) **Seven churn bugs from a code review of the 2.1.1–2.3.0 Postgres work** — six raised by the review, one found while verifying its fixes. All the same shape as the bug that started this work: DDL emitted on an unchanged schema, which on a large table means a metadata lock and stalled writes. Each now has a test (the review applied fixes without adding any).
     - **Partial FULLTEXT indexes rebuilt every sync**: the `fulltext` branch of `generateCreateIndex` returned *before* appending `WHERE`, so the desired signature carried a predicate the DDL never emitted — permanently unequal, a full GIN rebuild each run.
