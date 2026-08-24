@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-08-24
+
+### Fixed
+
+- **`searchOne()`'s SECOND POSITIONAL was a silent no-op for ordering (BDL-2700).**
+  2.4.0 gave `search()`'s second positional a validated option vocabulary
+  (`limitOne, limit, offset, orderBy, orderDir`). `searchOne` was not extended:
+  it hardcoded `true` into that validated slot and forwarded the caller's object
+  to the THIRD (pool-config) slot, where an ordering bag is meaningless. So
+  `searchOne(fields, { orderBy: 'createdAt', orderDir: 'DESC' })` emitted **no
+  `ORDER BY`**, threw nothing, and returned an arbitrary row — a wrong answer
+  wearing a correct-looking call. A pool config there was inert too: `search()`
+  returns inside its `limitOne` branch before `promisePoolMap` is ever reached.
+
+  **No instrument could catch it.** `PromisePoolMapConfig` carries
+  `[key: string]: any`, so excess-property checking can never fire — the bad
+  call sites type-checked clean and always would have.
+
+  The slot is now PARTITIONED across its three legitimate vocabularies:
+  - **ordering** — `orderBy`, `orderDir`, validated against the model schema by
+    `search()` (one validator, not two);
+  - **pool config** — `concurrency, debug, logger, throwErrors, yieldEvery`,
+    unchanged in meaning;
+  - **`tx`**, so `searchOne(fields, { tx })` keeps working.
+
+  Anything else throws, naming the key the caller actually typed.
+
+- **`warnOnInvalidDeflateKey` was UNREACHABLE, not merely off.** `deflateValues`
+  is a STATIC method, so inside it `this` IS the class — and it read the hook as
+  `this.constructor.warnOnInvalidDeflateKey`, which walks past the class to
+  `Function` and is always `undefined`. No model could turn the diagnostic on by
+  any documented path. Now reads `this.warnOnInvalidDeflateKey`.
+  **The default is unchanged**: `deflateValues` still IGNORES non-schema keys,
+  which is intended (the opt-in hook is the evidence of that intent). Only the
+  hook's reachability changed, so this is inert until a model installs one.
+
+### Changed (breaking, in a slot that measurably had no callers)
+
+- `searchOne`'s second positional now THROWS on a key outside the three
+  vocabularies above, where it previously swallowed it. Also newly rejected:
+  `limitOne` (implied by the method), and `limit`/`offset` (they contradict the
+  single-row return shape — use `search()` for a bounded page). A non-object,
+  non-nullish second argument now throws instead of being ignored.
+  Measured across the rubber monorepo with a paren-balancing, string-aware
+  scanner: **2194 `searchOne` call sites, 4 with a non-empty second argument, 2
+  of them live** — and both were the bug (`{ sort: {...} }` and
+  `{ orderBy: 'lastStatusAt DESC' }`). **Zero** passed a genuine pool config.
+
+### Types
+
+- New exported `SearchOneOptions`, used by BOTH the instance and static
+  `searchOne` forms in `index.d.ts` and by the emitted per-model interface in
+  `lib/generate-types.js`. It deliberately has **no index signature**, which is
+  what lets the compiler reject a mistyped option at the call site. Fixing the
+  runtime alone would have left the types waving the next bad call through —
+  the same one-of-three-layers omission that produced this bug.
+
+
 ## [2.4.2] - 2026-08-19
 
 ### Fixed

@@ -82,6 +82,33 @@ export type PromisePoolMapConfig = {
 	[key: string]: any;
 };
 
+/**
+ * `searchOne()`'s second positional (BDL-2700).
+ *
+ * Deliberately has NO index signature, unlike `PromisePoolMapConfig`. That open
+ * `[key: string]: any` is exactly why `searchOne(fields, { sort: {...} })`
+ * type-checked clean for years while being a silent runtime no-op: an open
+ * index signature admits every object, so excess-property checking can never
+ * fire. Closing it here is what lets the compiler reject a mistyped option at
+ * the call site instead of leaving it to a runtime throw.
+ *
+ * `limitOne` is intentionally absent — `searchOne` IS `limitOne: true`, and
+ * setting it throws at runtime.
+ *
+ * `limit`/`offset` are absent for the same reason: they contradict the
+ * single-row return shape (use `search()` for a bounded page).
+ */
+export type SearchOneOptions = Omit<
+	SearchOptions,
+	'limitOne' | 'limit' | 'offset'
+> & {
+	concurrency?: number;
+	debug?: boolean;
+	logger?: any;
+	throwErrors?: boolean;
+	yieldEvery?: number;
+} & TxOptions;
+
 export type SchemaField = {
 	field: string;
 	linkedModel?: any;
@@ -466,11 +493,17 @@ export interface DatabaseObjectStatic<
 		options?: TxOptions,
 	): Promise<TInstance | null>;
 
-	/** Search for a single record matching query */
+	/**
+	 * Search for a single record matching query.
+	 *
+	 * The second positional accepts `orderBy`/`orderDir` (validated against this
+	 * model's schema), pool-config keys, and `tx` — anything else throws naming
+	 * the key (BDL-2700).
+	 */
 	searchOne(
 		fields?: AnyRecord,
-		promisePoolMapConfig?: PromisePoolMapConfig & TxOptions,
-		options?: TxOptions,
+		options?: SearchOneOptions,
+		txOptions?: TxOptions,
 	): Promise<TInstance | null>;
 
 	/** Get a record by ID */
@@ -690,11 +723,15 @@ export declare class DatabaseObject {
 		options?: TxOptions,
 	): Promise<InstanceType<T> | null>;
 
+	/**
+	 * The second positional accepts `orderBy`/`orderDir`, pool-config keys, and
+	 * `tx`; anything else throws naming the key (BDL-2700).
+	 */
 	static searchOne<T extends typeof DatabaseObject>(
 		this: T,
 		fields?: AnyRecord,
-		promisePoolMapConfig?: PromisePoolMapConfig & TxOptions,
-		options?: TxOptions,
+		options?: SearchOneOptions,
+		txOptions?: TxOptions,
 	): Promise<InstanceType<T> | null>;
 
 	static get<T extends typeof DatabaseObject>(

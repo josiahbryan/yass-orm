@@ -43,6 +43,29 @@ expectError(MyModel.search({ id: 'id_123' }, { sortBy: ['-datetime'] }));
 expectError(MyModel.search({ id: 'id_123' }, { sort: { score: -1 } }));
 expectError(MyModel.search({ id: 'id_123' }, { orderDir: 'sideways' }));
 
+// BDL-2700: `searchOne`'s SECOND positional is now a typed options bag, not an
+// open `PromisePoolMapConfig`. It still resolves to a single instance or null.
+expectType<Promise<MyModel | null>>(
+	MyModel.searchOne({ id: 'id_123' }, { orderBy: 'id', orderDir: 'DESC' }),
+);
+expectType<Promise<MyModel | null>>(MyModel.searchOne({ id: 'id_123' }));
+// Pool-config keys keep their old meaning in that slot.
+expectType<Promise<MyModel | null>>(
+	MyModel.searchOne({ id: 'id_123' }, { concurrency: 2 }),
+);
+
+// The negative control that could NOT fire before this ticket. These are the
+// two live monorepo call sites; both type-checked clean against the old
+// `PromisePoolMapConfig & TxOptions` slot purely because of its
+// `[key: string]: any` index signature.
+expectError(MyModel.searchOne({ id: 'id_123' }, { sort: { createdAt: -1 } }));
+expectError(MyModel.searchOne({ id: 'id_123' }, { sortBy: ['-datetime'] }));
+expectError(MyModel.searchOne({ id: 'id_123' }, { orderDir: 'sideways' }));
+// `limitOne` is implied by searchOne and rejected at runtime — reject it here too.
+expectError(MyModel.searchOne({ id: 'id_123' }, { limitOne: false }));
+// `limit`/`offset` contradict the single-row shape.
+expectError(MyModel.searchOne({ id: 'id_123' }, { limit: 5 }));
+
 // BDL-2646 fix round 1: `limitOne: true` INSIDE the options object must
 // discriminate to a single instance (or null) — matching Task 3's runtime,
 // which returns a single row/null for exactly this shape. Getting this
