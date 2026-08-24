@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-08-24
+
+### Added
+
+- **`DatabaseObject.rejectUnknownFields` (default `false`): opt-in loud
+  failure for a caller-supplied object containing a key that isn't a real
+  schema column.** `deflateValues()` walks the SCHEMA's field list, not the
+  input object's keys, so a key with no matching column was silently
+  invisible to it — never read, never reported, never dropped loudly. A
+  subclass that sets `static rejectUnknownFields = true;` now gets a thrown
+  `Error` naming the offending key from `search()`, `searchOne()`,
+  `findOrCreate()` (`fields`/`patchIf`/`patchIfFalsey`), `create()`
+  (`data`), `patch()` (`data`), and `patchIf()` (`values`/`ifFalsey`).
+  Three internal self-referential call sites that pass a model instance
+  (not caller input) into `deflateValues`/`deflate` are deliberately
+  excluded. Defaults to `false` — no existing model's behavior changes
+  until it opts in. (BDL-2697)
+
 ## [2.4.2] - 2026-08-19
 
 ### Fixed
