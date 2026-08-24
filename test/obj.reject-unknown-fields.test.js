@@ -38,7 +38,15 @@ describe('#YASS-ORM rejectUnknownFields (BDL-2697)', () => {
 		});
 
 		// Default behaviour: flag is off unless a subclass opts in.
-		Widget = YassORM.loadDefinition(definition);
+		// A NAMED class (not a bare loadDefinition() assignment) — the
+		// object-instance cache in obj.js keys purely on `this.name`, so an
+		// anonymous loadDefinition() class would share a cache bucket with any
+		// OTHER anonymous loadDefinition() class in the same mocha process (this
+		// bit test/obj.search-options.test.js's own anonymous `Widget`, which
+		// uses the identical bare-assignment pattern — see that file's `JumbledWidget`
+		// for the same fix already applied there).
+		class WidgetModel extends YassORM.loadDefinition(definition) {}
+		Widget = WidgetModel;
 
 		// A NAMED class (not a bare loadDefinition() assignment) — the
 		// object-instance cache in obj.js keys purely on `this.name`, so two
