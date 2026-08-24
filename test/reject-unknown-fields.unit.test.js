@@ -58,4 +58,41 @@ describe('#YASS-ORM assertKnownFields', () => {
 			assertKnownFields({ sortBy: 'label' }, FIELD_MAP, CONTEXT),
 		).to.throw(/Widget\.patch\(\).*'data'.*id, name, sortKey/s);
 	});
+
+	it('treats a PROTOTYPE-CHAIN key as unknown, not as a real field (discriminating control)', () => {
+		// fieldMap is a plain object, so fieldMap['constructor'], fieldMap['toString'],
+		// fieldMap['hasOwnProperty'] etc are all truthy via Object.prototype — a bracket
+		// lookup (fieldMap[key]) would silently treat these as "known" and let them
+		// through. Object.keys(fieldMap) never includes them (they're not OWN
+		// properties of fieldMap), so a caller-supplied object containing one of these
+		// as an OWN key must still be rejected.
+		expect(() =>
+			assertKnownFields({ name: 'a', constructor: 'evil' }, FIELD_MAP, CONTEXT),
+		)
+			.to.throw(Error)
+			.that.matches(/'constructor'/);
+		expect(() =>
+			assertKnownFields({ toString: 'evil' }, FIELD_MAP, CONTEXT),
+		)
+			.to.throw(Error)
+			.that.matches(/'toString'/);
+	});
+
+	it('treats an OWN `__proto__` key (e.g. from JSON.parse on untrusted input) as unknown', () => {
+		// Object.defineProperty forces a real OWN enumerable `__proto__` key —
+		// this is the shape JSON.parse('{"__proto__": "evil"}') produces, as
+		// opposed to the special [[Prototype]] internal slot that a literal
+		// `{ __proto__: x }` normally sets instead.
+		const maliciousObject = {};
+		Object.defineProperty(maliciousObject, '__proto__', {
+			value: 'evil',
+			enumerable: true,
+			configurable: true,
+		});
+		expect(() =>
+			assertKnownFields(maliciousObject, FIELD_MAP, CONTEXT),
+		)
+			.to.throw(Error)
+			.that.matches(/'__proto__'/);
+	});
 });
