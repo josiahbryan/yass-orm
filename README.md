@@ -410,6 +410,55 @@ const results = await Model.search({ name: 'test' });
 
 ---
 
+## Connection pool sizing
+
+`yass-orm` keeps ONE pool per `(dialect, user, host, database, port)` key, shared
+by every caller. Three options bound how many server connections that pool can
+consume:
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `connectionLimit` | `10` | Ceiling — the most connections the pool will ever open. |
+| `minimumIdle` | driver default (`= connectionLimit`) | Floor — connections the pool keeps open even when idle. |
+| `acquireTimeout` | driver default (10s) | How long an acquire waits for a free connection before failing with errno 45028. |
+
+All three can be set in `.yass-orm.js` or passed per call as `dbh({ ... })`.
+
+**The floor is the one that surprises people.** The MariaDB driver defaults
+`minimumIdle` to `connectionLimit`, so `idleTimeout` never has anything above the
+floor to reap: a pool grows to its limit and holds it for the life of the
+process. That is fine for a long-running server and wasteful for a test suite or
+a CLI. Set `minimumIdle: 0` to let idle connections go back to the server:
+
+```javascript
+module.exports = {
+  development: {
+    connectionLimit: 20,
+    minimumIdle: 0,     // let idleTimeout actually reap
+  },
+};
+```
+
+`minimumIdle` and `acquireTimeout` are only forwarded to the driver when you set
+them, so leaving them out preserves the driver's own defaults exactly.
+
+### Diagnosing a connection ramp
+
+If server-side connections climb **monotonically** while the pool reports very
+few `active` connections, you are looking at orphaned pools, not load. Reproduce
+it with `node test/manual/pool-leak-probe.js`, which drives `dbh()` from a cold
+cache in concurrent bursts and reads server-side `Threads_connected` between
+rounds. A healthy run keeps **one** distinct pool per round and a flat leak
+count; it exits non-zero otherwise. Credentials come from your `.yass-orm.js`.
+
+```
+  Round 1: 1 distinct pool(s), peak +2, leaked after teardown +1
+  Round 2: 1 distinct pool(s), peak +2, leaked after teardown +1
+  Round 3: 1 distinct pool(s), peak +2, leaked after teardown +1
+```
+
+See BC-3587 in the CHANGELOG for the shape of the bug that motivated the probe.
+
 ## Recent changes
 
 ---

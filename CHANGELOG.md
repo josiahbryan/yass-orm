@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.1] - 2026-08-25
+
+### Fixed
+
+- **`dbh()` leaked an ENTIRE POOL per concurrent caller on a cold cache
+  (BC-3587).** `dbh()` is `async` and there were roughly a thousand lines and
+  several `await`s between the `connCache` LOOKUP and the `connCache` WRITE
+  (pool creation, plus one pool per read-only replica). There was no in-flight
+  guard, so N callers that asked for the same handle before the first one
+  resolved each built their **own** pool, and only the last one to finish won
+  the cache slot. The other N-1 pools were **orphaned**: never handed back out,
+  never closed by `closeAllConnections()` (it only walks `connCache`), and never
+  reaped — the mariadb driver defaults `minimumIdle` to `connectionLimit`, so
+  `idleTimeout` trims nothing and each orphan holds its connections open for the
+  life of the process.
+
+  The damage compounds per cold-cache burst, which is exactly what a test suite
+  does: a cleanup hook calls `closeAllConnections()` between files, the next
+  file's concurrent work stampedes a cold cache, and another N-1 pools leak.
+  Server-side connections then ramp **monotonically** until `max_connections` is
+  exhausted, after which every acquire fails with errno 45028 / `HY000`
+  "retrieve connection from pool timeout". The signature is distinctive and was
+  visible in CI: pool `total` climbing `11 → 41 → 101 → 140` while `active`
+  stayed at 0–3 — the "idle" connections were real, they just belonged to pools
+  nobody could reach.
+
+  Measured against a local MySQL before the fix: 20 concurrent `dbh()` calls
+  produced **20 distinct pools**, and three cold-cache rounds leaked **+23 →
+  +107 → +188** connections past teardown. After the fix: 1 pool per round,
+  flat at +1. Rerun that measurement yourself with
+  `node test/manual/pool-leak-probe.js` (credentials come from your
+  `.yass-orm.js`; exits non-zero if the leak returns).
+
+  In-flight creations are now memoized in a `pendingConnCache` keyed like
+  `connCache`, so concurrent callers share one pool; the entry is dropped on
+  both success and failure so a failed create does not poison later retries.
+  `closeAllConnections()` now settles in-flight creations first, closing the
+  remaining window where a pool created *during* teardown was closed by nobody.
+  `ignoreCachedConnections: true` deliberately opts out of both caches — it
+  exists to hand out an extra throwaway handle, and deduping it would break that
+  contract.
+
+### Added
+
+- **`minimumIdle` and `acquireTimeout` pool options** (config + per-`dbh()`
+  call), forwarded to the MySQL/MariaDB driver only when set. These are the two
+  levers for bounding connection usage: the driver defaults `minimumIdle` to
+  `connectionLimit`, which means a pool grows to its limit and holds it forever
+  because `idleTimeout` never has anything above the floor to reap. Setting
+  `minimumIdle: 0` lets a long-lived process or a test suite give idle
+  connections back. Leaving both unset preserves current behavior exactly — they
+  are omitted from the driver config rather than passed as `undefined`.
+
 ## [2.5.0] - 2026-08-24
 
 ### Fixed
