@@ -76,6 +76,22 @@ async function main() {
 	// times (measured 7.2x total inflation on a real schema). --no-group-by-table
 	// restores the legacy per-column plan.
 	const groupByTable = !arg('no-group-by-table', false);
+	// --tables-file <path>: newline-delimited ALLOWLIST of table names (# comments
+	// and blank lines ignored). It can only NARROW the plan. Required posture for
+	// production: a reviewed list of names, applied last, so the run cannot touch
+	// anything nobody signed off on. An EMPTY file migrates NOTHING, on purpose.
+	const tablesFile = arg('tables-file', null);
+	let onlyTables = null;
+	if (tablesFile && tablesFile !== true) {
+		onlyTables = fs
+			.readFileSync(tablesFile, 'utf8')
+			.split('\n')
+			.map((l) => l.replace(/#.*$/, '').trim())
+			.filter(Boolean);
+		console.log(
+			`[link-collation] ALLOWLIST from ${tablesFile}: ${onlyTables.length} table(s). The plan can only NARROW.`,
+		);
+	}
 
 	const database = config.schema;
 	const dialect = getDialect(config.dialect || 'mysql');
@@ -92,6 +108,7 @@ async function main() {
 		bigTableRowThreshold: bigRows,
 		onlineTool,
 		groupByTable,
+		onlyTables,
 	});
 
 	console.log(
@@ -109,6 +126,15 @@ async function main() {
 	if (outFile) {
 		fs.writeFileSync(outFile, JSON.stringify(manifest, null, 2), 'utf8');
 		console.log(`[link-collation] manifest written to ${outFile}`);
+	}
+
+	if (onlyTables && manifest.items.length === 0) {
+		console.error(
+			`[link-collation] ABORT: the allowlist matched ZERO tables needing migration.\n` +
+				`  Either every listed table is already canonical, or the names are wrong.\n` +
+				`  Refusing to report success for a run that would do nothing.`,
+		);
+		process.exit(3);
 	}
 
 	if (doGenerateOnly && !doRun && !arg('dry-run', false)) {

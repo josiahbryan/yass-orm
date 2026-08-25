@@ -429,3 +429,59 @@ describe('#Link Collation — per-TABLE grouping (BDL-3125)', () => {
 		expect(multi.onlineCommand).to.match(/--alter="MODIFY /);
 	});
 });
+
+describe('#Link Collation — allowlist (production safety, BDL-3125)', () => {
+	const rows = [
+		{
+			tableName: 'keep_me',
+			columnName: 'a',
+			collationName: 'utf8mb4_0900_ai_ci',
+			columnType: 'char(36)',
+			isNullable: 'YES',
+			tableRows: 5,
+			totalBytes: 100,
+		},
+		{
+			tableName: 'huge_log',
+			columnName: 'b',
+			collationName: 'utf8mb4_0900_ai_ci',
+			columnType: 'char(36)',
+			isNullable: 'YES',
+			tableRows: 9e9,
+			totalBytes: 9e12,
+		},
+	];
+	const gen = (onlyTables) =>
+		generateLinkCollationManifest({
+			handle: mockHandle(rows),
+			database: 'testdb',
+			dialect,
+			onlyTables,
+		});
+
+	it('narrows the plan to the listed tables', async () => {
+		const m = await gen(['keep_me']);
+		expect(m.items.map((i) => i.table)).to.deep.equal(['keep_me']);
+		expect(m.summary.columns).to.equal(1);
+	});
+
+	it('RED ARM: without the allowlist the huge table IS included', async () => {
+		// Without this the test above cannot tell "narrowing works" from
+		// "the huge table was never in the set".
+		const m = await gen(null);
+		expect(m.items.map((i) => i.table).sort()).to.deep.equal([
+			'huge_log',
+			'keep_me',
+		]);
+	});
+
+	it('CANNOT WIDEN: a name not in the schema matches nothing', async () => {
+		const m = await gen(['keep_me', 'table_that_does_not_exist']);
+		expect(m.items.map((i) => i.table)).to.deep.equal(['keep_me']);
+	});
+
+	it('an EMPTY allowlist migrates NOTHING — never "no filter"', async () => {
+		const m = await gen([]);
+		expect(m.items.length).to.equal(0);
+	});
+});
