@@ -7,6 +7,7 @@ const {
 	runLinkCollationMigration,
 	createMemoryStateStore,
 	CANONICAL_UUID_COLLATION,
+	groupItemsByTable,
 } = require('../lib/migrations/link-collation');
 
 const dialect = getDialect('mysql');
@@ -269,5 +270,162 @@ describe('#Link Collation Migration Tooling', () => {
 			expect(threw).to.not.equal(null);
 			expect(threw.message).to.match(/Insufficient disk/);
 		});
+	});
+});
+
+describe('#Link Collation — per-TABLE grouping (BDL-3125)', () => {
+	// Two tables: one with THREE qualifying columns, one with a single column.
+	// The 3-column table is the whole point — per-column it is rebuilt 3 times.
+	const row = (
+		tableName,
+		columnName,
+		isNullable,
+		totalBytes,
+		collationName,
+	) => ({
+		tableName,
+		columnName,
+		collationName: collationName || 'utf8mb4_0900_ai_ci',
+		columnType: 'char(36)',
+		isNullable,
+		tableRows: 10,
+		totalBytes,
+	});
+	// Ordered as the generator's SQL returns them: `ORDER BY totalBytes ASC`,
+	// i.e. SMALLEST TABLE FIRST, so the batch racks up quick wins and the
+	// operator reaches the big/online-DDL tables last, knowingly. Grouping must
+	// PRESERVE that order — asserted below.
+	const multiRows = [
+		row('solo', 'z', 'YES', 500),
+		row('multi', 'a', 'YES', 1000),
+		row('multi', 'b', 'NO', 1000),
+		row('multi', 'c', 'YES', 1000, 'utf8mb4_general_ci'),
+	];
+	const gen = (opts) =>
+		generateLinkCollationManifest({
+			handle: mockHandle(multiRows),
+			database: 'testdb',
+			dialect,
+			...opts,
+		});
+
+	it('collapses N columns of a table into ONE rebuild', async () => {
+		const grouped = await gen({ groupByTable: true });
+		expect(grouped.items.length).to.equal(2); // 2 tables, not 4 columns
+		expect(grouped.summary.columns).to.equal(4); // still reports all 4 columns
+		expect(grouped.summary.rebuilds).to.equal(2);
+		const multi = grouped.items.find((i) => i.table === 'multi');
+		expect(multi.columns).to.deep.equal(['a', 'b', 'c']);
+		expect(multi.columnCount).to.equal(3);
+	});
+
+	it('RED ARM: ungrouped really does emit one rebuild PER COLUMN', async () => {
+		// Without this arm the test above cannot distinguish "grouping works"
+		// from "there was only ever one item per table".
+		const flat = await gen({ groupByTable: false });
+		expect(flat.items.length).to.equal(4);
+		expect(flat.summary.rebuilds).to.equal(4);
+		expect(flat.items.filter((i) => i.table === 'multi').length).to.equal(3);
+	});
+
+	it('emits ONE ALTER carrying every column, each with the target collation', async () => {
+		const grouped = await gen({ groupByTable: true });
+		const multi = grouped.items.find((i) => i.table === 'multi');
+		expect(multi.alterSql).to.match(/^ALTER TABLE `multi` MODIFY /);
+		// exactly three MODIFY clauses in one statement
+		expect(multi.alterSql.match(/MODIFY/g).length).to.equal(3);
+		['a', 'b', 'c'].forEach((col) => {
+			expect(multi.alterSql).to.include(col);
+		});
+		expect(
+			multi.alterSql.match(new RegExp(CANONICAL_UUID_COLLATION, 'g')).length,
+		).to.equal(3);
+		// nullability is preserved per column, not flattened
+		expect(multi.alterSql).to.include('NOT NULL');
+	});
+
+	it('totalBytes counts each TABLE ONCE — the 7.2x inflation bug', async () => {
+		// multi=1000 bytes (3 cols), solo=500. Correct total is 1500.
+		// Summing per column would give 3*1000 + 500 = 3500.
+		const [grouped, flat] = await Promise.all([
+			gen({ groupByTable: true }),
+			gen({ groupByTable: false }),
+		]);
+		[grouped, flat].forEach((m) => {
+			expect(m.summary.totalBytes).to.equal(1500);
+			// summing per column would give 3*1000 + 500 = 3500
+			expect(m.summary.totalBytes).to.not.equal(3500);
+		});
+	});
+
+	it('grouped state keys are stable regardless of column order (resumability)', async () => {
+		const a = groupItemsByTable({
+			items: [
+				{
+					table: 't',
+					column: 'x',
+					currentCollation: 'utf8mb4_0900_ai_ci',
+					isNullable: true,
+					estRows: 1,
+					estDataBytes: 1,
+					big: false,
+				},
+				{
+					table: 't',
+					column: 'y',
+					currentCollation: 'utf8mb4_0900_ai_ci',
+					isNullable: true,
+					estRows: 1,
+					estDataBytes: 1,
+					big: false,
+				},
+			],
+			dialect,
+			targetCollation: CANONICAL_UUID_COLLATION,
+			database: 'd',
+			onlineTool: 'pt-osc',
+		});
+		expect(a[0].columns).to.deep.equal(['x', 'y']);
+	});
+
+	it('a grouped run marks the whole table complete once, and RESUMES past it', async () => {
+		const manifest = await gen({ groupByTable: true });
+		const store = createMemoryStateStore();
+		const applied = [];
+		const report = await runLinkCollationMigration({
+			manifest,
+			stateStore: store,
+			execute: async ({ item }) => applied.push(item.table),
+			verify: async ({ item }) =>
+				applied.includes(item.table)
+					? CANONICAL_UUID_COLLATION
+					: 'utf8mb4_0900_ai_ci',
+		});
+		expect(report.applied.length).to.equal(2);
+		// Grouping must not reshuffle: smallest-table-first survives it.
+		expect(applied).to.deep.equal(['solo', 'multi']);
+		// second run: everything already done, nothing re-applied
+		const rerun = await runLinkCollationMigration({
+			manifest,
+			stateStore: store,
+			execute: async () => {
+				throw new Error('must not re-apply');
+			},
+			verify: async () => CANONICAL_UUID_COLLATION,
+		});
+		expect(rerun.applied.length).to.equal(0);
+		expect(rerun.skipped.length).to.equal(2);
+	});
+
+	it('pt-osc command passes --preserve-triggers and a VALID alter clause', async () => {
+		const grouped = await gen({ groupByTable: true, onlineTool: 'pt-osc' });
+		const multi = grouped.items.find((i) => i.table === 'multi');
+		// yass-orm puts a before-insert trigger on EVERY table it manages, and
+		// pt-osc refuses outright on a table with triggers without this flag.
+		expect(multi.onlineCommand).to.include('--preserve-triggers');
+		// --alter takes the CLAUSE INCLUDING its keyword. Stripping "MODIFY "
+		// produced `ALTER TABLE t col char(36)...` -> a SQL syntax error,
+		// verified against pt-osc 3.7.1 on 2026-08-25.
+		expect(multi.onlineCommand).to.match(/--alter="MODIFY /);
 	});
 });

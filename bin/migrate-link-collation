@@ -71,6 +71,11 @@ async function main() {
 	const onlineTool = arg('online-tool', 'gh-ost');
 	const bigRows = Number(arg('big-rows', DEFAULT_BIG_TABLE_ROW_THRESHOLD));
 	const continueOnError = arg('continue-on-error', false);
+	// Default ON: one ALTER per TABLE instead of one per COLUMN. A collation
+	// change is a full table rebuild, so per-column rebuilds an N-column table N
+	// times (measured 7.2x total inflation on a real schema). --no-group-by-table
+	// restores the legacy per-column plan.
+	const groupByTable = !arg('no-group-by-table', false);
 
 	const database = config.schema;
 	const dialect = getDialect(config.dialect || 'mysql');
@@ -86,6 +91,7 @@ async function main() {
 		targetCollation,
 		bigTableRowThreshold: bigRows,
 		onlineTool,
+		groupByTable,
 	});
 
 	console.log(
@@ -94,6 +100,10 @@ async function main() {
 			`~${humanBytes(manifest.summary.totalBytes)}, est ~${
 				manifest.summary.estSeconds
 			}s rebuild total.`,
+	);
+	console.log(
+		`[link-collation] plan: ${manifest.summary.rebuilds} table rebuild(s)` +
+			`${groupByTable ? ' (grouped per table)' : ' (PER COLUMN — legacy)'}.`,
 	);
 
 	if (outFile) {
@@ -105,14 +115,31 @@ async function main() {
 		process.exit(0);
 	}
 
-	// verify() reads the live collation for the column from information_schema.
+	// verify() reads the live collation from information_schema.
+	//
+	// A GROUPED item (one ALTER covering every qualifying column in a table)
+	// carries `columns`, not `column`. It must report the target collation ONLY
+	// when EVERY column reached it — otherwise a partially-applied table would
+	// verify green and be recorded complete. When they disagree it returns a
+	// MISMATCHING value, which is what the runner's verify-after halt expects.
 	const verify = async ({ item }) => {
+		const cols = item.column ? [item.column] : item.columns || [];
+		if (!cols.length) return null;
 		const rows = await handle.query(
-			`SELECT COLLATION_NAME AS c FROM information_schema.COLUMNS
-			  WHERE TABLE_SCHEMA=? AND TABLE_NAME=? AND COLUMN_NAME=?`,
-			[database, item.table, item.column],
+			`SELECT COLUMN_NAME AS n, COLLATION_NAME AS c
+			   FROM information_schema.COLUMNS
+			  WHERE TABLE_SCHEMA=? AND TABLE_NAME=?
+			    AND COLUMN_NAME IN (${cols.map(() => '?').join(',')})`,
+			[database, item.table, ...cols],
 		);
-		return rows && rows[0] ? rows[0].c : null;
+		if (!rows || !rows.length) return null;
+		// A column that vanished is not "verified" — treat a short result as a
+		// mismatch rather than silently verifying the subset that came back.
+		if (rows.length !== cols.length) return null;
+		const distinct = [...new Set(rows.map((r) => r.c))];
+		return distinct.length === 1
+			? distinct[0]
+			: distinct.find((c) => c !== targetCollation) ?? null;
 	};
 
 	const execute = async ({ item }) => {
