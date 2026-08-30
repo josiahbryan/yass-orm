@@ -13,7 +13,7 @@
     "test:schema-sync": "node bin/schema-sync test/fake*.js",
     "test:dialects": "mocha --exit --reporter spec lib/dialects/test/*.test.js",
     "test:sqlite": "mocha --exit --reporter spec lib/dialects/test/SQLiteDialect.test.js",
-    "test:postgres": "YASS_CONFIG=$PWD/.yass-orm.postgres.js mocha --exit --reporter spec test/schemaSync.postgres.idempotency.test.js test/postgres.model.test.js",
+    "test:postgres": "YASS_CONFIG=$PWD/.yass-orm.postgres.js mocha --exit --reporter spec test/schemaSync.postgres.idempotency.test.js test/postgres.model.test.js test/schemaSync.multiValuedIndex.test.js",
     "test:mysql": "mocha --exit --reporter spec lib/dialects/test/MySQLDialect.test.js",
     "test:types": "tsd",
     "eslint:fix:watch": "nodemon node_modules/eslint/bin/eslint.js --verbose --ignore-path .eslintignore ./lib ./bin/schema-sync --fix",

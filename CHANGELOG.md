@@ -7,6 +7,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **First-class MySQL MULTI-VALUED (JSON array) index support (BDL-3243).** A
+  JSON array column can now be indexed so it is searchable with a sargable
+  `MEMBER OF` / `JSON_CONTAINS` / `JSON_OVERLAPS` instead of a full-scan `LIKE`:
+
+  ```js
+  indexes: {
+      idx_approles: {
+          multiValued: true,
+          col: 'appRoles',   // `cols: ['appRoles']` also accepted
+          path: '$[*]',      // optional, defaults to '$[*]'
+          cast: 'char(64)',  // REQUIRED - see below
+      },
+  }
+  ```
+
+  emits `CREATE INDEX ... ((CAST(`appRoles`->'$[*]' AS CHAR(64) ARRAY)))`.
+
+  `col` is SINGULAR because MySQL permits at most **one** multi-valued key part
+  per index. `cast` is **required and deliberately has no default**: the cast
+  type *and its length* are part of the index IDENTITY — `char(64)` and
+  `char(255)` are genuinely different indexes — so a guessed default would
+  either build an index nobody asked for or permanently disagree with a
+  hand-written one.
+
+  **Why the obvious workaround was a trap.** Raw index strings are already
+  passed through verbatim, so writing the DDL by hand *appeared* to work. But
+  MySQL reports the expression back as
+  `cast(json_extract(`appRoles`,_utf8mb4\'$[*]\') as char(64) array)`, and
+  `normalizeMySqlIndexExpression` keyed on `json_extract(...)` **alone** — broad
+  enough to match this shape and reduce it to `appRoles->>"$[*]"`, silently
+  discarding both the trailing ` array` keyword and the cast type. Desired and
+  introspected signatures could then never be equal, so schema-sync issued
+  `DROP INDEX` + `CREATE INDEX` on **every run**, and each rebuild holds a
+  metadata lock that blocks every write to the table. MySQL accepts the
+  mismatched DDL and discards the difference silently, so no error ever
+  surfaced — it just stalled a hot table forever. This is the FULLTEXT
+  prefix-length bug (2.1.1) in a new costume.
+
+  The fix makes idempotency *structural* rather than coincidental: the schema
+  def and the database's own reported expression are both reduced through the
+  same canonical form, so the two sides of the comparison cannot drift apart.
+  Verified against MySQL 8.4.2 — before the fix, `char(64)` and `decimal(10,2)`
+  multi-valued indexes both collapsed to the same `->>"$[*]"` string.
+
+  Two smaller traps handled along the way: MySQL re-renders `DECIMAL(10,2)` as
+  `decimal(10, 2)` (note the inserted space), and the charset introducer
+  (`_utf8mb4`) reflects the charset of the session that ran the DDL rather than
+  being fixed, so it is matched generically. A multi-valued expression that
+  cannot be parsed is now returned **verbatim** instead of falling through to
+  the lossy single-value branch, so an unrecognized shape churns *visibly* in
+  the sync log rather than masquerading as a correctly round-tripped index.
+
+  Postgres (GIN over jsonb) and SQLite have no equivalent spelling, so
+  `supportsMultiValuedIndexes` is false there and schema-sync **omits just that
+  index** with a warning — the table and its other indexes sync normally, and
+  the omission is stable across syncs. Verified live against Postgres.
+
+  CAVEAT: `MySQLDialect` also serves **MariaDB**, which has no multi-valued
+  index support at any version, as is true of MySQL before 8.0.17. There is no
+  connection-free way to tell them apart in the dialect, so on such a server the
+  `CREATE INDEX` fails with a loud syntax error that lands in the sync's error
+  list — a deliberately better failure than silent forever-churn.
+
+- (test) `test/schemaSync.multiValuedIndex.test.js` — the acceptance test is
+  IDEMPOTENCY against a live MySQL (sync twice, assert the second run emits zero
+  index DDL), plus an explicit desired-signature == introspected-signature
+  assertion, because the defect lives in the *disagreement* between what we
+  generate and what MySQL reports back and a unit test over the normalizer alone
+  cannot see it. Carries a positive control (widening `char(64)` -> `char(255)`
+  MUST still be detected as a changed index) so the suite cannot pass by having
+  the comparison broken open in the always-equal direction. Confirmed red: with
+  the ` array` handling deliberately disabled, the idempotency test fails naming
+  both churning indexes. The Postgres skip path is covered live under
+  `npm run test:postgres`.
+
 ## [2.5.1] - 2026-08-25
 
 ### Fixed
