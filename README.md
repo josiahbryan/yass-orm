@@ -462,6 +462,35 @@ See BC-3587 in the CHANGELOG for the shape of the bug that motivated the probe.
 ## Recent changes
 
 ---
+- 2026-08-30 (unreleased)
+  - (feat) **First-class MySQL MULTI-VALUED (JSON array) indexes** (MySQL 8.0.17+), so a JSON array column is searchable with a sargable `MEMBER OF` / `JSON_CONTAINS` / `JSON_OVERLAPS` instead of a full-scan `LIKE`:
+
+	```js
+	options: {
+		indexes: {
+			idx_approles: {
+				multiValued: true,
+				col: 'appRoles',   // `cols: ['appRoles']` / `columns` also accepted
+				path: '$[*]',      // optional, defaults to '$[*]'
+				cast: 'char(64)',  // REQUIRED - no default, see below
+			},
+		},
+	}
+	```
+
+	emits ``CREATE INDEX `idx_approles` ON `t` ((CAST(`appRoles`->'$[*]' AS CHAR(64) ARRAY)))``.
+
+	`col` is **singular** because MySQL permits at most **one** multi-valued key part per index, so an array would promise something the database cannot do. `cast` is **required and deliberately has no default**: the cast type *and its length* are part of the index IDENTITY — `char(64)` and `char(255)` are genuinely different indexes — so a guessed default would either build an index nobody asked for or permanently disagree with a hand-written one.
+
+	A **generated JSON column is not required**: MySQL accepts `->` on a `LONGTEXT` column holding JSON and the planner still uses the index, so `t.text` / `t.array()` columns can be indexed directly (verified: `EXPLAIN` reports `type: ref`, `key: idx_approles`). To be usable the query predicate must name the **same expression as the index** — `WHERE 'role7' MEMBER OF (appRoles->'$[*]')`.
+
+  - (fix) **Writing that index as a raw string appeared to work and silently rebuilt it on every sync.** Raw index strings pass through verbatim, so hand-written multi-valued DDL looked fine. But MySQL reports the expression back as ``cast(json_extract(`appRoles`,_utf8mb4\'$[*]\') as char(64) array)``, and `normalizeMySqlIndexExpression` keyed on `json_extract(...)` **alone** — broad enough to match this shape and reduce it to `appRoles->>"$[*]"`, silently discarding **both** the trailing ` array` keyword **and** the cast type (so `char(64)` and `decimal(10,2)` collapsed to the same string). Desired and introspected signatures could then never be equal, so schema-sync issued `DROP INDEX` + `CREATE INDEX` on **every run**, each rebuild holding a metadata lock that blocks every write to the table. MySQL accepts the mismatched DDL and discards the difference silently, so no error ever surfaced. This is the 2.1.1 FULLTEXT prefix-length bug in a new costume. Idempotency is now **structural**: the schema def and MySQL's own reported expression are both reduced through one canonical form, so the two sides cannot drift apart. Two adjacent traps handled — MySQL re-renders `DECIMAL(10,2)` as `decimal(10, 2)` (inserted space), and the charset introducer reflects the charset of whoever ran the DDL, so it is matched generically rather than pinned to `_utf8mb4`. An `array`-bearing expression that cannot be parsed is now returned **verbatim** instead of falling through to the lossy single-value branch, so an unrecognized shape churns *visibly* in the sync log rather than masquerading as a correctly round-tripped index.
+
+  - (note) Postgres (GIN over `jsonb`) and SQLite have no equivalent spelling, so `supportsMultiValuedIndexes` is false there and schema-sync **omits just that index** with a warning — the table and its other indexes sync normally and the omission is stable across syncs (verified live against Postgres). **CAVEAT:** `MySQLDialect` also serves **MariaDB**, which has no multi-valued index support at any version, as is true of MySQL before 8.0.17. There is no connection-free way to tell them apart in the dialect, so on such a server the `CREATE INDEX` fails with a loud syntax error that lands in the sync's error list — deliberately a better failure than silent forever-churn.
+
+  - (test) `test/schemaSync.multiValuedIndex.test.js`. The acceptance test is **idempotency against a live MySQL** (sync twice, assert the second run emits zero index DDL) plus an explicit desired-signature == introspected-signature assertion, because the defect lives in the *disagreement* between what we generate and what MySQL reports back — a unit test over the normalizer alone is structurally incapable of seeing it. Carries a positive control (widening `char(64)` → `char(255)` **must** still be detected as a changed index) so the suite cannot pass by having the comparison broken open in the always-equal direction. Confirmed red: with the ` array` handling deliberately disabled, the idempotency test fails naming both churning indexes. The Postgres skip path runs live under `npm run test:postgres`.
+
+---
 - 2026-08-19 (2.4.2)
   - (fix) **MySQLDialect: column `COMMENT` over MySQL/MariaDB's 1024-char cap killed the entire `CREATE TABLE`** (`ER_TOO_LONG_FIELD_COMMENT`, errno 1629), not just the one column — and only against a **fresh** database, since a box that already has the table never re-issues the `CREATE`. Two real fields hit it: `bc_agent_grid_entries.executorKind` (1404 chars) and `bc_agent_messages.deliveredAt`. `generateFieldSpec()` now truncates any `.describe()` text over `MAX_MYSQL_COMMENT_LEN` (1020) to `1020 chars + '...'`, applied **before** quote-escaping (escaping only grows the string). Postgres and SQLite were checked and do not have this bug: Postgres's `generateFieldSpec()` doesn't emit column comments at all, and SQLite's description branch is an explicit no-op.
 
