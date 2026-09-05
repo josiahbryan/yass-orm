@@ -182,6 +182,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   both churning indexes. The Postgres skip path is covered live under
   `npm run test:postgres`.
 
+## [2.6.1] - 2026-09-04
+
+### Fixed
+
+- **P1: the first-connect probe inside `createPool` could hang forever, wedging
+  every `dbh()` / `withDbh()` caller behind the shared pool.** For MySQL/MariaDB
+  with `disableFullGroupByPerSession: true` — the config rubber prod and every
+  `schema-sync` run take — `createPool` issues `SET sql_mode=(SELECT
+  REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY',''))` immediately after building the
+  pool. That query leases the pool's FIRST connection, so it *is* the
+  lazy-pool-create / first-connect step. The mariadb driver is supposed to bound
+  that acquire with `acquireTimeout` (errno 45028), but production observed the
+  driver's own timer NOT firing: a connection reached `ESTAB`, no query went
+  out, and the `await` never settled — three CI ticks wedged until an external
+  3h watchdog killed them. The probe is now wrapped in a yass-orm-owned watchdog
+  (`withAcquireTimeout`) that is INDEPENDENT of the driver's internal timer: if
+  it does not settle within `acquireTimeout` (default **45s** when the caller
+  sets nothing), `createPool` REJECTS with errno `45028`
+  (`ER_GET_CONNECTION_TIMEOUT`) and CLOSES the pool it just built, so the
+  caller's promise rejects instead of the process hanging. The 2.5.1
+  orphaned-pool cleanup contract (close the pool exactly once on a failed
+  post-create setup) is preserved on both the watchdog and the query-rejects
+  paths. A `test/MySQLDialect.createPool-acquire-timeout.test.js` reproduces the
+  wedge (mocked probe that never settles → unfixed code hangs to mocha's own
+  timeout) and asserts the reject-with-45028-and-close behaviour.
+
+### Notes
+
+- This does **not** change what is forwarded to the mariadb driver.
+  `acquireTimeout` / `minimumIdle` are still only forwarded when explicitly set
+  (unchanged since BC-3587 / 2.5.1), so an existing deployment keeps the
+  driver's per-query acquire default (10s) exactly. The new 45s default applies
+  ONLY to the first-connect-probe watchdog, which forwards nothing. A
+  tens-of-seconds default was chosen so a healthy-but-momentarily-saturated pool
+  never false-trips while an unreachable / wedged server still rejects promptly.
+
 ## [2.5.1] - 2026-08-25
 
 ### Fixed
