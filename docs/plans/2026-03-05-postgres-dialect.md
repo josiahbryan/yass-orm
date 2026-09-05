@@ -25,7 +25,7 @@ These are the hardcoded MySQL assumptions that must be addressed:
 | `lib/sync-to-db.js:28` | Default port hardcoded to `3306` | PG default is `5432` |
 | `lib/sync-to-db.js:91` | Raw `SHOW FUNCTION STATUS` SQL | Already guarded by `dialect.supportsStoredFunctions` |
 | `lib/sync-to-db.js:149,211` | Shells out to `mysql` CLI for functions/triggers | Already guarded by feature flags |
-| `lib/sync-to-db.js:170-171` | Backtick quoting in `uploadIdTrigger` | Already guarded by `dialect.supportsTriggers` |
+| `lib/sync-to-db.js` id-trigger reconciliation | Backtick quoting in the id trigger | Now goes through `syncTableTriggers` in `lib/sync-triggers.js`; gated by `dialect.supportsUuidIdTrigger` (2.6.0+) |
 | `lib/sync-to-db.js:548-556` | Type comparison normalizations are MySQL-specific | PG returns different type names from introspection |
 | `lib/sync-to-db.js:752-753` | `dialect.name === 'sqlite'` check for index naming | Needs PG handling (PG indexes are also schema-global) |
 | `lib/config.js:48,99` | Default port `3306` in default configs | Should be dialect-aware |
@@ -33,7 +33,8 @@ These are the hardcoded MySQL assumptions that must be addressed:
 **Not blockers** (already handled by dialect layer):
 - DDL generation — each dialect has its own methods
 - Schema introspection — each dialect queries its own catalog
-- `uploadMatchRatioFunction` / `uploadIdTrigger` — guarded by feature flags
+- `uploadMatchRatioFunction` — guarded by feature flags
+- Trigger reconciliation — `syncTableTriggers` (2.6.0+) is gated by `supportsDeclaredTriggers` (currently false on PG/SQLite); the built-in id trigger is gated by `supportsUuidIdTrigger`
 
 ---
 

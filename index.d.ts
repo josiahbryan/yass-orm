@@ -131,7 +131,61 @@ export interface SchemaDefinition {
 	legacyExternalSchema?: boolean;
 	disableAutoUpdatedAt?: boolean;
 	objectIdPrefix?: string;
+	/**
+	 * Declared database triggers, reconciled by schema-sync against the
+	 * catalog (MySQL: information_schema.TRIGGERS). See README for the
+	 * shape and semantics -- the presence of this key on the def is the
+	 * OPT-IN gate that lets schema-sync drop undeclared triggers on the
+	 * same table.
+	 */
+	triggers?: Record<string, TriggerSpec>;
 	[key: string]: any;
+}
+
+/**
+ * Timing of a declared trigger. MySQL supports only `before` and `after`.
+ * Postgres and SQLite have `instead of` too but yass-orm does not implement
+ * their reconcilers yet (see lib/dialects/*.js `supportsDeclaredTriggers`).
+ */
+export type TriggerTiming = 'before' | 'after';
+
+/**
+ * Event a declared trigger fires on. `truncate` is a Postgres-only concept
+ * and is intentionally NOT accepted here for portability.
+ */
+export type TriggerEvent = 'insert' | 'update' | 'delete';
+
+/**
+ * The trigger BODY the schema author writes.
+ *
+ * `string` form means "the active dialect", which is convenient when a def
+ * is only ever run against one database. `object` form is dialect-keyed
+ * (`mysql`, `pg`/`postgres`, `sqlite`); a dialect without an entry is
+ * SKIPPED STABLY -- the reconciler emits no DDL for it and the rest of the
+ * table syncs as normal, mirroring how unsupported multi-valued indexes
+ * behave under `supportsMultiValuedIndexes`.
+ */
+export type TriggerBody =
+	| string
+	| {
+			mysql?: string;
+			pg?: string;
+			postgres?: string;
+			sqlite?: string;
+	  };
+
+/**
+ * A declared trigger, matching what `lib/sync-triggers.js validateTriggerSpec`
+ * accepts at convert time. `timing`/`event` are structured because those are
+ * the columns the catalog exposes for comparison; putting them in the body
+ * would force the reconciler to parse a header out of a string. The engine
+ * owns the CREATE TRIGGER framing and the ON clause, so the body is JUST the
+ * body -- no `${table}` templating in the author's string.
+ */
+export interface TriggerSpec {
+	timing: TriggerTiming;
+	event: TriggerEvent;
+	body: TriggerBody;
 }
 
 export type FinderResult<Row = AnyRecord> = {

@@ -9,6 +9,104 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Schema-defined `triggers` block, reconciled by schema-sync (2.6.0).** A
+  def can now declare database triggers next to `indexes`, and every sync
+  brings the catalog into alignment (CREATE if absent, DROP + CREATE on
+  drift, no-op when equal). MySQL/MariaDB is implemented in this pass;
+  Postgres and SQLite warn-and-skip so a shared def stays portable:
+
+  ```js
+  triggers: {
+      set_nonce_upper: {
+          timing: 'before',   // 'before' | 'after'
+          event: 'insert',    // 'insert' | 'update' | 'delete'
+          body: `BEGIN
+              IF NEW.nonce IS NULL THEN
+                  SET NEW.nonce = UPPER(NEW.name);
+              END IF;
+          END`,
+      },
+  }
+  ```
+
+  The engine writes `CREATE TRIGGER <name> <TIMING> <EVENT> ON <table>
+  FOR EACH ROW` itself, so the author only writes the body. `${table}`
+  inside a body is a convert-time throw — leftover templates used to
+  ship as a literal that MySQL then rejected at CREATE time. `body` may
+  also be dialect-keyed (`{ mysql, pg, sqlite }`); each value must be a
+  non-empty string, and a dialect without an entry is skipped stably.
+
+  **Firing order is part of the contract, not a knob.** For
+  same-`(timing, event)` triggers the reconciler guarantees: built-in
+  `before_insert_<table>_set_id` FIRST (on a `uuidKey` table), then
+  declared triggers in object insertion order. If a group's body,
+  timing, event, or `ACTION_ORDER` has drifted, the WHOLE group is
+  dropped and recreated with `FOLLOWS` chaining — the only way to
+  guarantee order on MySQL, where an ordinary DROP + CREATE moves a
+  trigger to the end of the chain. That is what lets a user
+  `BEFORE INSERT` trigger safely read `NEW.id`. Author-facing
+  `FOLLOWS` / `PRECEDES` keys are not exposed.
+
+  **Opt-in drop authority per table.** A def with no `triggers` key
+  never has anything dropped (existing defs are in this state —
+  upgrading changes nothing for them). A def with a `triggers` key
+  (even `triggers: {}`) is authoritative: any trigger on the table that
+  is neither declared nor the id trigger is dropped. Indexes already
+  work this way; the opt-in gate exists here because dropping a trigger
+  changes DATA behavior (an index only affects performance).
+
+  **Why the old path was a trap.** The UUID id trigger used to shell
+  out to the `mysql` CLI (`mysql -u <user> --password=<password> ...
+  < /tmp/f<pid>.sql`). That put the database password on the process
+  command line (`ps auxww`), left a plaintext SQL file in `/tmp`, and
+  required a `mysql` binary in `PATH`. The `DELIMITER` framing that
+  motivated the shell-out is a CLI-ism — sending `CREATE TRIGGER ...
+  BEGIN ... END` over the mariadb driver as one statement works fine.
+  The id trigger is now just another entry in the same reconciler, so
+  firing order and drift detection are one guarantee, not two.
+
+  Both sides of the comparison — the body the author wrote and the body
+  MySQL echoes from `information_schema.TRIGGERS.ACTION_STATEMENT` —
+  go through the same string-literal-safe lexer (`normalizeTriggerBody`)
+  before a byte-for-byte compare. Case is preserved (`'Foo'` → `'foo'`
+  is drift); whitespace, `--` / `/* */` comments, and a trailing `;`
+  are insignificant. `--` and `/* */` inside string literals are left
+  alone so `'-- not a comment'` cannot collapse.
+
+  Adjacent traps closed along the way: flipping `t.uuidKey` → `t.idKey`
+  now drops the leftover UUID id trigger (it would otherwise write a
+  UUID into an INT column); `CREATE TRIGGER` qualifies BOTH the trigger
+  name and the table (MySQL error 1435: "Trigger in wrong schema"); a
+  trigger that moves groups (`before insert` → `after insert`) is
+  dropped from the old location before CREATE (names are unique per
+  schema); `SET SESSION lock_wait_timeout` failure is warn-and-continue
+  rather than aborting the table; the "dialect does not implement
+  declared triggers" warning fires once per dialect per process.
+
+  `supportsTriggers` was split into three capabilities that the old
+  flag had conflated: `supportsTriggers` (the database can do triggers:
+  MySQL/PG/SQLite), `supportsUuidIdTrigger` (MySQL only),
+  `supportsDeclaredTriggers` (MySQL only for now).
+  `config.triggerLockWaitTimeout` defaults to 60s.
+
+  `DEFINER` is not compared and not emitted — MySQL's default is whoever
+  ran CREATE, so comparing it would flag drift every time a different
+  account ran schema-sync.
+
+- (test) `test/schemaSync.triggers.test.js` — the acceptance test is
+  IDEMPOTENCY against a live MySQL (sync twice, assert the second run
+  emits zero trigger DDL), plus a positive control that a genuinely
+  changed body IS detected, plus a direct-behavior assertion that a
+  user `BEFORE INSERT` trigger can read `NEW.id` (id trigger fired
+  first) even after a forced group rebuild, plus the `uuidKey` →
+  `idKey` orphan drop and a cross-schema `db.table` reconcile. A unit
+  test over the normalizer alone cannot see the MySQL echo-back
+  disagreement. `lib/sync-triggers.test.js` +
+  `lib/sync-triggers.integration.test.js` cover the planner, the
+  string-safe lexer, lock-timeout failure recovery, and reconciler
+  control flow with a mock dialect. `lib/def-to-schema.triggers.test.js`
+  covers convert-time validation.
+
 - **First-class MySQL MULTI-VALUED (JSON array) index support (BDL-3243).** A
   JSON array column can now be indexed so it is searchable with a sargable
   `MEMBER OF` / `JSON_CONTAINS` / `JSON_OVERLAPS` instead of a full-scan `LIKE`:

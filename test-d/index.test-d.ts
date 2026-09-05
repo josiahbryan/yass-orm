@@ -1,5 +1,12 @@
-import { expectType, expectError } from 'tsd';
-import { loadDefinition, DatabaseObject, type FinderResult } from 'yass-orm';
+import { expectType, expectError, expectAssignable } from 'tsd';
+import {
+	loadDefinition,
+	DatabaseObject,
+	type FinderResult,
+	type TriggerSpec,
+	type TriggerTiming,
+	type TriggerEvent,
+} from 'yass-orm';
 
 class MyModel extends loadDefinition('./defs/my-model') {
 	hello() {
@@ -133,3 +140,63 @@ expectType<Promise<FinderResult<Record<string, any>>>>(
 
 // Ensure DatabaseObject base is usable as a type.
 expectType<DatabaseObject>({} as DatabaseObject);
+
+// -----------------------------------------------------------------------
+// Declared triggers (schema.triggers block)
+// -----------------------------------------------------------------------
+
+// String body form: shorthand for "the active dialect". Accepts every valid
+// timing/event and rejects unknown ones at compile time.
+expectAssignable<TriggerSpec>({
+	timing: 'before',
+	event: 'insert',
+	body: 'BEGIN END',
+});
+expectAssignable<TriggerSpec>({
+	timing: 'after',
+	event: 'update',
+	body: 'BEGIN END',
+});
+
+// Dialect-keyed body: at least one known key. A dialect without an entry
+// gets skipped stably at runtime.
+expectAssignable<TriggerSpec>({
+	timing: 'before',
+	event: 'insert',
+	body: { mysql: 'BEGIN END', pg: 'BEGIN END', sqlite: 'BEGIN END' },
+});
+expectAssignable<TriggerSpec>({
+	timing: 'before',
+	event: 'insert',
+	body: { mysql: 'BEGIN END' },
+});
+
+// Type-level rejections: the whole reason these are separate string-literal
+// unions rather than plain `string` is that a typo has to fail at COMPILE
+// time, not one deploy later as a silent no-op.
+expectError<TriggerSpec>({
+	timing: 'instead of', // MySQL only supports before/after
+	event: 'insert',
+	body: 'BEGIN END',
+});
+expectError<TriggerSpec>({
+	timing: 'before',
+	event: 'truncate', // Postgres-only, not portable
+	body: 'BEGIN END',
+});
+// A body that is neither a string nor a dialect-keyed object. Uses a
+// literal (not `as any`, which would defeat the compile-time check).
+expectError<TriggerSpec>({
+	timing: 'before',
+	event: 'insert',
+	body: 42,
+});
+
+// The literal-union types themselves.
+expectAssignable<TriggerTiming>('before');
+expectAssignable<TriggerTiming>('after');
+expectError<TriggerTiming>('during');
+expectAssignable<TriggerEvent>('insert');
+expectAssignable<TriggerEvent>('update');
+expectAssignable<TriggerEvent>('delete');
+expectError<TriggerEvent>('select');

@@ -4,6 +4,155 @@ Yet Another Super Simple ORM
 
 Why? Mainly for my personal use in a variety of projects.
 
+## Declared triggers (schema-defined `triggers` block)
+
+Schema-sync can reconcile database triggers the same way it reconciles
+columns and indexes: declare them on the def, and every sync brings the
+catalog into alignment (CREATE if absent, DROP + CREATE on drift, no-op
+when equal). Only MySQL/MariaDB is implemented in this pass; Postgres and
+SQLite are warn-and-skip so a shared def stays portable.
+
+### Shape
+
+```javascript
+exports.default = ({ types: t }) => ({
+	table: 'yass_test2',
+	schema: {
+		id: t.uuidKey,
+		name: t.string,
+		nonce: t.string,
+	},
+
+	indexes: {
+		idx_name: ['name'],
+	},
+
+	// Sibling of `indexes`. `options.triggers` is also accepted; the two
+	// spellings mean the same thing.
+	triggers: {
+		// The KEY is the physical trigger name (identical to how index
+		// keys work).
+		set_nonce_upper: {
+			timing: 'before',          // 'before' | 'after'
+			event: 'insert',           // 'insert' | 'update' | 'delete'
+			body: `BEGIN
+				IF NEW.nonce IS NULL THEN
+					SET NEW.nonce = UPPER(NEW.name);
+				END IF;
+			END`,
+		},
+
+		// `body` may be dialect-keyed. Accepted keys: `mysql`,
+		// `pg` (== `postgres`), `sqlite`. A dialect without an entry is
+		// skipped stably -- no DDL, no error, and the rest of the table
+		// syncs as normal. Each dialect value must be a non-empty string.
+		audit_row: {
+			timing: 'after',
+			event: 'update',
+			body: {
+				mysql: `BEGIN ... END`,
+				pg: `-- future`,
+			},
+		},
+	},
+});
+```
+
+The engine writes the `CREATE TRIGGER <name> <TIMING> <EVENT> ON <table> FOR EACH ROW` framing itself, so the author only writes the body. `${table}` inside a body is a **convert-time throw** — the engine owns the ON clause, and a leftover template would ship as a literal that MySQL then rejects at CREATE time.
+
+### Firing order (implicit, always)
+
+MySQL fires same-`(timing,event)` triggers in creation order. The reconciler
+guarantees the following order:
+
+1. The built-in `before_insert_<table>_set_id` trigger for a `uuidKey` table
+   (created automatically -- authors never write it).
+2. Then the declared triggers in the ORDER THEY APPEAR in the `triggers`
+   object (JS preserves object insertion order per ES2015+).
+
+If a group has drifted (any member's body, timing, event, OR firing order
+disagrees with the desired sequence), the WHOLE group is dropped and
+recreated in the desired order with `FOLLOWS` chaining. Recreating a
+sibling is a metadata-only operation (milliseconds; no table rebuild) and
+is the ONLY way to guarantee firing order on MySQL, where an ordinary
+DROP + CREATE moves a trigger to the end of the chain.
+
+This is the guarantee that lets a user `BEFORE INSERT` trigger safely read
+`NEW.id`: the id trigger has already run.
+
+### Opt-in drop authority (per table)
+
+- Def has **no** `triggers` key: the engine manages ONLY its own id trigger
+  and never touches anything else. All existing defs are in this state, so
+  upgrading yass-orm changes nothing for them.
+- Def **has** a `triggers` key (even `triggers: {}`): the def is
+  authoritative for that table. After the create/recreate pass, any
+  trigger on the table that is neither declared nor the id trigger is
+  DROPPED, logged as `Debug: Trigger '<name>' removed (not declared in schema)`.
+  This is what makes a rename converge -- without it, renaming
+  `set_nonce_upper` to `set_nonce` leaves both triggers firing, which for
+  an audit trigger means double writes.
+- The id trigger is exempt from the drop pass in both states — **except**
+  when the def flips `t.uuidKey` → `t.idKey`. The leftover
+  `before_insert_<table>_set_id` would then write a UUID into an INT
+  column on every insert, so it is dropped unconditionally.
+
+Indexes already work this way; the opt-in gate exists here only because
+dropping a trigger changes DATA BEHAVIOR (an index only affects
+performance), so a hand-created one vanishing on a minor-version upgrade
+would be a worse surprise than an extra index would.
+
+### Comparison and idempotency
+
+Both sides -- the body the schema author wrote and the body MySQL echoes
+back from `information_schema.TRIGGERS.ACTION_STATEMENT` -- are reduced
+through the same normalizer (`lib/sync-triggers.js normalizeTriggerBody`)
+before being compared byte-for-byte. Case is PRESERVED (a change to a
+literal from `'Foo'` to `'foo'` inside a body is a real semantic change),
+but whitespace, `--` line comments, `/* block */` comments, and a trailing
+`;` are all insignificant. `--` and `/* */` inside string literals are
+left alone (a body that stores `'-- not a comment'` must not collapse).
+The live acceptance test `test/schemaSync.triggers.test.js` syncs twice
+and asserts zero trigger DDL on the second run; this is the same shape
+that guards `schemaSync.multiValuedIndex.test.js` and
+`schemaSync.fulltextIdempotency.test.js`.
+
+### Lock-wait timeout
+
+`DROP` / `CREATE TRIGGER` take a metadata lock. Before trigger DDL the
+reconciler sets `SESSION lock_wait_timeout` (default 60s, override with
+`config.triggerLockWaitTimeout`) so a hot table cannot hang the sync --
+a timeout lands in the run's error list, not a stall. Restored to the
+prior value in a `finally`. If the SET itself fails (privilege / replica),
+sync continues with the session default and a warning — it does not abort
+the table.
+
+### Dialects
+
+- **MySQL/MariaDB**: fully implemented. `dialect.supportsDeclaredTriggers === true`.
+- **Postgres**: `supportsDeclaredTriggers === false`. A schema with a
+  `triggers` block still syncs its columns and indexes; the trigger block
+  is warned **once per dialect per process** and skipped stably. A future
+  PG implementation needs to emit `CREATE FUNCTION` + `CREATE OR REPLACE TRIGGER`
+  and compare drift against `pg_proc.prosrc` and `pg_get_triggerdef()` (both
+  of which PG reformats -- normalizer must be built against a live PG server).
+- **SQLite**: `supportsDeclaredTriggers === false`. Same warn-and-skip.
+  Deferred until a live consumer needs it.
+
+### What is deliberately NOT managed
+
+- `DEFINER` is not compared and not emitted. Triggers run with the
+  definer's privileges, but MySQL's DEFAULT is whoever ran `CREATE`, so
+  comparing it would flag drift every time a different account (laptop vs
+  CI vs deploy user) ran schema-sync -- the every-run-DDL bug this
+  reconciler exists to prevent. Emitting an explicit DEFINER also needs
+  `SUPER`/`SET_USER_ID`. The real hazard (dropping the definer account
+  breaks the trigger at runtime) is an account-lifecycle problem that
+  text comparison cannot fix.
+- Author-facing `FOLLOWS` / `PRECEDES` keys: not exposed. The implicit
+  ordering above is the contract; `FOLLOWS` is still emitted internally
+  during a group rebuild.
+
 ## Transactions
 
 Database handles support callback-based transactions across MySQL, MariaDB,
@@ -460,6 +609,34 @@ count; it exits non-zero otherwise. Credentials come from your `.yass-orm.js`.
 See BC-3587 in the CHANGELOG for the shape of the bug that motivated the probe.
 
 ## Recent changes
+
+---
+- 2026-09-04 (2.6.0)
+  - (feat) **Schema-defined `triggers` block, reconciled by schema-sync.** A def can now declare database triggers next to `indexes`, and every sync brings the catalog into alignment (CREATE if absent, DROP + CREATE on drift, no-op when equal). MySQL/MariaDB is implemented in this pass; Postgres and SQLite warn-and-skip so a shared def stays portable. See the *Declared triggers* section at the top of this README for the full shape.
+
+	```js
+	triggers: {
+		set_nonce_upper: {
+			timing: 'before',
+			event: 'insert',
+			body: `BEGIN IF NEW.nonce IS NULL THEN SET NEW.nonce = UPPER(NEW.name); END IF; END`,
+		},
+	}
+	```
+
+	The engine writes `CREATE TRIGGER <name> <TIMING> <EVENT> ON <table> FOR EACH ROW` itself. `${table}` inside a body is a convert-time throw — leftover templates used to ship as a literal that MySQL then rejected at CREATE time. Dialect-keyed `body` values (`{ mysql, pg, sqlite }`) must be non-empty strings.
+
+  - (feat) **Firing order is part of the contract, not a knob.** For same-`(timing,event)` triggers the reconciler guarantees: built-in `before_insert_*_set_id` FIRST, then declared triggers in the order they appear in the object. If a group's order or bodies have drifted the WHOLE group is dropped and recreated in the desired order with `FOLLOWS` chaining -- the only way to guarantee firing order on MySQL, where an ordinary DROP + CREATE moves a trigger to the END of the chain. This is what lets a user `BEFORE INSERT` trigger safely read `NEW.id` (the id trigger has already run) even after a group rebuild. Author-facing `FOLLOWS` / `PRECEDES` keys are deliberately not exposed; the implicit order is the contract.
+  - (feat) **Opt-in drop authority per table.** A def with **no** `triggers` key never has anything dropped (existing defs are in this state -- upgrading changes nothing for them). A def **with** a `triggers` key (even `triggers: {}`) is authoritative: any trigger on the table that is neither declared nor the id trigger is dropped, logged as `Debug: Trigger '<name>' removed (not declared in schema)`. This is what makes a rename converge -- otherwise renaming `set_upper` to `set_upper_v2` leaves both firing, which for an audit trigger means double writes. Indexes already work this way; the opt-in gate exists here only because dropping a trigger changes DATA behavior (an index only affects performance).
+  - (fix) **Flipping `t.uuidKey` → `t.idKey` no longer leaves the UUID id trigger writing into an INT column.** The id trigger is otherwise exempt from the drop pass (so existing defs without a `triggers` key stay untouched). That exemption is a data hazard when the column type itself changes: leftover `before_insert_<table>_set_id` would mint a UUID into an integer PK on every insert. The reconciler now drops that orphan unconditionally.
+  - (fix, **security**) **The built-in UUID id trigger no longer shells out to the `mysql` CLI, which fixes a longstanding credential-exposure hazard.** `uploadIdTrigger` used to write a `/tmp/f<pid>.sql` file and run `mysql -u <user> --password=<password> -h <host> -D <db> < /tmp/...`. That put the **database password on the process command line** where any local user could see it with `ps auxww` (the `-p` flag has a well-known warning about this; `--password=` has the same problem), left a **plaintext SQL file** in `/tmp` for the duration of the run, and required a `mysql` binary in `PATH` (a fragile dependency, especially in containers). The `DELIMITER` framing that motivated the shell-out is a CLI-ism -- sending `CREATE TRIGGER ... BEGIN ... END` over the mariadb driver as ONE statement works fine, which is what schema-sync now does. The id trigger is also now just another entry in the same reconciler that handles declared triggers, so firing order and drift detection are ONE guarantee, not two. **If your deployment has multi-tenant hosts or restricted local users, this alone is worth the upgrade.**
+  - (fix) **MySQL error 1435: `CREATE TRIGGER` now qualifies BOTH the trigger name and the table with the database.** Qualifying only one side fails with "Trigger in wrong schema". `getTableTriggers` is schema-scoped the same way (an alternate-schema `db.table` def no longer sees triggers from the connection default database).
+  - (fix) **`normalizeTriggerBody` is a string-literal-safe lexer, not a regex.** `--` and `/* */` inside quotes (`'-- not a comment'`) are left alone; stripping them as comments would make a real semantic change look equal. Case is still preserved — `'Foo'` → `'foo'` is drift.
+  - (fix) **Cross-cutting `supportsTriggers` split into three capabilities.** The old flag conflated three separate things: whether the DATABASE supports triggers at all, whether yass-orm's MySQL-flavored UUID id trigger works here, and whether the declared-trigger reconciler is implemented here. That conflation is why the old flag was `false` on Postgres and SQLite even though both databases support triggers just fine. Split into `supportsTriggers` (MySQL/PG/SQLite: `true`), `supportsUuidIdTrigger` (MySQL: `true`; others: `false`), and `supportsDeclaredTriggers` (MySQL: `true`; others: `false` for now). The "dialect does not implement declared triggers" warning fires **once per dialect per process**, not once per table. Nothing user-visible changes on PG/SQLite; the id trigger is still skipped there.
+  - (feat) **`config.triggerLockWaitTimeout` (default 60s).** `DROP` / `CREATE TRIGGER` take a metadata lock and would otherwise queue behind long writes on a hot table. Wrapped in `SET SESSION lock_wait_timeout = <n>` (restored to prior in a `finally`), so a hang surfaces as an error in the sync's error list, not a stall. If the SET itself fails (privilege / replica), sync continues with the session default and a warning — it does not abort the table.
+  - (fix) **A trigger that MOVES groups (e.g. `before insert` -> `after insert`) is dropped from the old location before being created in the new one.** MySQL trigger names are unique per-schema, so the CREATE would otherwise fail with `Trigger already exists`. The reconciler now emits an unconditional `DROP TRIGGER IF EXISTS <name>` before each `CREATE` in a group rebuild (idempotent when the name is absent, cheap for the safety it buys).
+  - (test) `test/schemaSync.triggers.test.js`: the live-MySQL acceptance suite. The red/green assertions are "sync twice, second run emits ZERO trigger DDL" (mirrors the multi-valued-index and FULLTEXT idempotency tests, since the bug class is the same -- desired body must NORMALIZE to what MySQL echoes back), plus the positive control that a genuinely changed body IS detected, plus a direct-behavior assertion that reads `NEW.id` from a user trigger to prove the id trigger fired first even after a forced rebuild, plus the `uuidKey` → `idKey` orphan drop and a cross-schema `db.table` reconcile. `lib/sync-triggers.test.js` + `lib/sync-triggers.integration.test.js` cover the planner, the string-safe lexer, lock-timeout failure recovery, and the reconciler control flow with a mock dialect (no DB required). `lib/def-to-schema.triggers.test.js` covers convert-time validation (`${table}` throw, dialect-keyed body types).
+  - (types) `TriggerSpec`, `TriggerTiming`, `TriggerEvent`, `TriggerBody` in `index.d.ts`; `schema.triggers?: Record<string, TriggerSpec>` on `SchemaDefinition`. `test-d/index.test-d.ts` has negative controls: `timing: 'instead of'`, `event: 'truncate'`, and a numeric `body` all fail to compile.
 
 ---
 - 2026-08-30 (unreleased)
