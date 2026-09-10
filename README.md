@@ -570,8 +570,9 @@ consume:
 | `connectionLimit` | `10` | Ceiling — the most connections the pool will ever open. |
 | `minimumIdle` | driver default (`= connectionLimit`) | Floor — connections the pool keeps open even when idle. |
 | `acquireTimeout` | driver default (10s) for the driver's per-query acquire; **the first-connect probe is bounded at 45s by default** (see below) | How long an acquire waits for a free connection before failing with errno 45028. |
+| `idleTimeout` | `600` (seconds) | How long an idle connection may sit before the pool reaps it. Must be a positive whole number; `0` is rejected (the driver reads falsy as unset and substitutes 1800). |
 
-All three can be set in `.yass-orm.js` or passed per call as `dbh({ ... })`.
+All four can be set in `.yass-orm.js` or passed per call as `dbh({ ... })`.
 
 **The first-connect probe can no longer hang forever (2.6.1).** For MySQL/MariaDB
 with `disableFullGroupByPerSession: true` (rubber prod + every schema-sync run),
@@ -599,15 +600,18 @@ module.exports = {
   development: {
     connectionLimit: 20,
     minimumIdle: 0,     // let idleTimeout actually reap
+    idleTimeout: 60,    // ...and reap after a minute instead of the 600s default
   },
 };
 ```
 
-`minimumIdle` and `acquireTimeout` are only forwarded to the driver when you set
-them, so leaving them out preserves the driver's own defaults exactly. (The
-first-connect-probe watchdog described above is a **separate**, always-on
-yass-orm default — it does not forward anything to the driver, so it does not
-change what the driver sees when these options are unset.)
+`minimumIdle`, `acquireTimeout` and `idleTimeout` are only forwarded to the
+driver when you set them, so leaving them out preserves yass-orm's own defaults
+exactly (`idleTimeout` falls back to 600s inside the dialect; the other two fall
+back to the driver's). (The first-connect-probe watchdog described above is a
+**separate**, always-on yass-orm default — it does not forward anything to the
+driver, so it does not change what the driver sees when these options are
+unset.)
 
 ### Diagnosing a connection ramp
 
@@ -628,6 +632,12 @@ See BC-3587 in the CHANGELOG for the shape of the bug that motivated the probe.
 
 ## Recent changes
 
+---
+- 2026-09-10 (2.7.0)
+  - (feat) **`idleTimeout` is now configurable.** `lib/dbh.js` hardcoded `idleTimeout: 600` into both `poolConfig` and every `roConnConfig`, so a caller's value never reached the driver — measured, `idleTimeout: 999` reached neither pool while `minimumIdle: 3` (positive control) reached both. `dbh.js` now forwards it only when set and holds no literal; `MySQLDialect` and `PostgresDialect` each own the 600s default. **Unchanged for every consumer that does not set it.**
+  - (feat) **An invalid `idleTimeout` throws, naming the option.** Must be `undefined` or a positive whole number of seconds. `0` is rejected deliberately: mariadb does `opts.idleTimeout || 1800`, so falsy is indistinguishable from unset and "never reap" is inexpressible. The driver throws for no input at all (`-5`, `1.5`, `'abc'` all pass through), so this cannot be left to it.
+  - (fix) Both dialects moved from `config.idleTimeout || 600` to `=== undefined ? 600 : ...`, so a `0` is not silently rewritten one layer below `dbh.js`.
+  - (test) `test/dbh.idleTimeout.test.js`: drives `dbh()` with `mariadb.createPool` stubbed (no connection made) and asserts the value reaches **both** the write pool and the RO pool, that the key is **absent** when unset, that `MySQLDialect` still supplies exactly `600`, and that six invalid values each reject. Every forwarding case carries `minimumIdle` as an in-run positive control.
 ---
 - 2026-09-04 (2.6.1)
   - (fix, **P1**) **The first-connect probe inside `createPool` can no longer hang forever.** For MySQL/MariaDB with `disableFullGroupByPerSession: true` — the config rubber prod and every `schema-sync` run take — `createPool` issues `SET sql_mode=(SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY',''))` right after building the pool. That query leases the pool's FIRST connection, so it *is* the lazy-pool-create / first-connect step. The mariadb driver is supposed to bound that acquire with `acquireTimeout` (errno 45028), but production observed the driver's own timer NOT firing: a connection reached `ESTAB`, no query went out, and the `await` never settled — three CI ticks wedged this way until an external 3h watchdog killed them, taking down every `dbh()` / `withDbh()` caller behind the shared pool. The probe is now wrapped in a yass-orm-owned watchdog (`withAcquireTimeout`) that is INDEPENDENT of the driver's internal timer: if it does not settle within `acquireTimeout` (default **45s** when the caller sets nothing), `createPool` REJECTS with errno `45028` (`ER_GET_CONNECTION_TIMEOUT`) and CLOSES the pool it just built — so the caller's promise rejects instead of the process hanging. The `SET`-query cleanup contract (close the pool exactly once on failure — 2.5.1's orphaned-pool fix) is preserved: the watchdog path and the query-rejects path both close once.

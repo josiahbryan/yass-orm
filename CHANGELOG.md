@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`idleTimeout` is configurable (2.7.0).** `lib/dbh.js` hardcoded
+  `idleTimeout: 600` into **both** pool configs — the write pool and every
+  `readonlyNodes` entry — so a value set in `.yass-orm.js` or passed as
+  `dbh({ idleTimeout })` was silently discarded. Measured before the fix:
+  `idleTimeout: 999` reached neither pool, while `minimumIdle: 3` (a positive
+  control) reached both. `dbh.js` now forwards the option only when it is set
+  and carries no literal of its own; each dialect owns its default:
+
+  ```js
+  module.exports = {
+      development: {
+          connectionLimit: 20,
+          minimumIdle: 0,      // let idleTimeout actually reap
+          idleTimeout: 60,     // ...and reap after a minute instead of ten
+      },
+  };
+  ```
+
+  **The effective default is unchanged at 600 seconds** for every consumer that
+  does not set it. Both dialects switched from `config.idleTimeout || 600` to an
+  explicit `=== undefined` test, so a `0` is no longer silently rewritten to 600
+  one layer below where anyone would look for it.
+
+  An invalid value now **throws**, naming the option: `idleTimeout` must be
+  `undefined` or a positive whole number of seconds. `0` is rejected on purpose —
+  the mariadb driver does `opts.idleTimeout || 1800`, so a falsy value is
+  indistinguishable from unset and becomes the driver's 1800s default; "never
+  reap" is not expressible, and accepting `0` would mean accepting a value the
+  driver silently overwrites. The driver throws for *no* input at all (`-5`,
+  `1.5` and `'abc'` all pass straight through), so this validation cannot be
+  delegated downward. (BDL-3565)
+
 - **Schema-defined `triggers` block, reconciled by schema-sync (2.6.0).** A
   def can now declare database triggers next to `indexes`, and every sync
   brings the catalog into alignment (CREATE if absent, DROP + CREATE on
