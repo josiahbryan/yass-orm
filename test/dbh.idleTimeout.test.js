@@ -162,4 +162,38 @@ describe('dbh idleTimeout forwarding (BDL-3565)', () => {
 		const opts = await captureDialectPool({ database: 'bdl3565_probe' });
 		expect(opts.idleTimeout).to.equal(600);
 	});
+
+	// AC3 -- an invalid value must fail loudly. chai-as-promised is NOT a
+	// devDependency here, so `.to.be.rejectedWith()` is unavailable; use the
+	// explicit pattern below. A bare try/catch with the assertion INSIDE the
+	// catch passes vacuously when nothing throws, which is the exact failure
+	// this criterion exists to detect.
+	describe('invalid idleTimeout values', () => {
+		const INVALID = ['abc', -5, 0, NaN, 1.5, null];
+
+		INVALID.forEach((value) => {
+			it(`rejects ${typeof value} ${String(value)}, naming the option`, async () => {
+				let caught;
+				try {
+					await capturePools({ idleTimeout: value });
+				} catch (e) {
+					caught = e;
+				}
+				// Assert the rejection HAPPENED before asserting anything about it.
+				expect(
+					caught,
+					`expected dbh() to reject for idleTimeout=${String(value)}`,
+				).to.be.instanceOf(Error);
+				expect(caught.message).to.include('idleTimeout');
+			});
+		});
+
+		// Without this, a validator that rejected EVERYTHING would pass the six
+		// cases above.
+		it('still accepts a valid positive integer', async () => {
+			const pools = await capturePools({ idleTimeout: 900 });
+			expect(pools).to.have.lengthOf(1);
+			expect(pools[0].idleTimeout).to.equal(900);
+		});
+	});
 });
