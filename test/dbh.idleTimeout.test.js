@@ -125,14 +125,16 @@ describe('dbh idleTimeout forwarding (BDL-3565)', () => {
 	// literal, and not an explicit `undefined`. Asserted on the config dbh.js
 	// hands the dialect, per the controller ruling; see captureDialectConfigs.
 	it('forwards no idleTimeout key at all to the dialect when unset', async () => {
-		const configs = await captureDialectConfigs({ readonlyNodes: RO_NODES });
+		const configs = await captureDialectConfigs({
+			minimumIdle: 3,
+			readonlyNodes: RO_NODES,
+		});
 
 		expect(configs).to.have.lengthOf(2);
-		// POSITIVE CONTROL: a key dbh.js DOES always forward. If this is absent
-		// the capture is broken and the assertion below proves nothing.
-		configs.forEach((c) => {
-			expect(c).to.have.property('database');
-		});
+		// POSITIVE CONTROL: a knob that already worked before this ticket. It must
+		// arrive on BOTH configs -- if it does not, the capture is broken and the
+		// absence assertion below would pass for the wrong reason.
+		expect(configs.map((c) => c.minimumIdle)).to.deep.equal([3, 3]);
 		configs.forEach((c) => {
 			expect(c).to.not.have.property('idleTimeout');
 		});
@@ -142,9 +144,15 @@ describe('dbh idleTimeout forwarding (BDL-3565)', () => {
 	// driver through the WHOLE dbh -> dialect chain is exactly 600. (a) alone
 	// would still pass if the default were dropped; this catches that.
 	it('still delivers exactly 600 through the full dbh chain when unset', async () => {
-		const pools = await capturePools({ readonlyNodes: RO_NODES });
+		const pools = await capturePools({
+			minimumIdle: 3,
+			readonlyNodes: RO_NODES,
+		});
 
 		expect(pools).to.have.lengthOf(2);
+		// POSITIVE CONTROL, asserted first: if minimumIdle did not arrive the
+		// harness is broken and the 600 below proves nothing either way.
+		expect(pools.map((p) => p.minimumIdle)).to.deep.equal([3, 3]);
 		expect(pools.map((p) => p.idleTimeout)).to.deep.equal([600, 600]);
 	});
 
