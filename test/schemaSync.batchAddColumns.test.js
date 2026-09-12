@@ -77,6 +77,15 @@ describe('#schemaSync buildAddColumnPlan', () => {
 		expect(plan.ledger).to.deep.equal([]);
 	});
 
+	it('UNDEFINED addFieldList is treated the same as N=0, not a throw', () => {
+		const plan = buildAddColumnPlan({
+			dialect: mysql,
+			tableName: 'widgets',
+		});
+		expect(plan.statements).to.deep.equal([]);
+		expect(plan.ledger).to.deep.equal([]);
+	});
+
 	// AC6 -- a dialect that has not opted in keeps today's exact behaviour.
 	it('falls back to one statement per column on a non-opted-in dialect', () => {
 		const plan = buildAddColumnPlan({
@@ -411,8 +420,11 @@ describe('#schemaSync batched ADD COLUMN (db-backed)', function batchedAddSuite(
 		expect(sizeLines[0]).to.match(/rows/);
 
 		const conn = await dbh({ ignoreCachedConnections: true });
-		await conn.pquery(`DROP TABLE IF EXISTS \`${sized}\``);
-		await conn.end();
+		try {
+			await conn.pquery(`DROP TABLE IF EXISTS \`${sized}\``);
+		} finally {
+			await conn.end();
+		}
 	});
 
 	// The important half of AC8: a failed size lookup must NEVER block a
@@ -432,10 +444,14 @@ describe('#schemaSync batched ADD COLUMN (db-backed)', function batchedAddSuite(
 		}
 
 		const conn = await dbh({ ignoreCachedConnections: true });
-		const cols = await conn.pquery(`SHOW COLUMNS FROM \`${broken}\``);
-		const names = cols.map((c) => c.Field);
-		await conn.pquery(`DROP TABLE IF EXISTS \`${broken}\``);
-		await conn.end();
+		let names;
+		try {
+			const cols = await conn.pquery(`SHOW COLUMNS FROM \`${broken}\``);
+			names = cols.map((c) => c.Field);
+			await conn.pquery(`DROP TABLE IF EXISTS \`${broken}\``);
+		} finally {
+			await conn.end();
+		}
 
 		expect(names).to.include('notice');
 		expect(names).to.include('noticeDetail');

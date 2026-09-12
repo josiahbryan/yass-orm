@@ -16,6 +16,16 @@
  * `'OFF'` would clobber a peer's own already-enabled `general_log`/
  * `log_output` (e.g. a DBA debugging session, or another test run) the moment
  * this suite's `after()` fires.
+ *
+ * NEVER `TRUNCATE mysql.general_log`. On a shared server that table can carry
+ * a co-tenant's own captured log with no way back. Instead of clearing the
+ * table, `enable()` stamps a `NOW(6)` cutoff BEFORE the caller's sync runs,
+ * and `altersFor()` filters on `event_time >= <cutoff>` in addition to the
+ * existing table-name LIKE -- a peer's pre-existing rows for the same table
+ * name (or any name) simply predate the cutoff and cannot inflate the count.
+ * Strictly better than truncating: it protects the peer's data AND survives
+ * a hard kill between `enable()` and the `finally` (server-wide logging left
+ * ON writes an unbounded table, but never destroys anyone else's rows).
  */
 
 // Module-level, not per-call: `disable(conn)` is invoked with no arguments
@@ -24,6 +34,8 @@
 // Safe under mocha's default sequential execution, where enable/disable calls
 // are never interleaved across tests.
 let priorState = null;
+// The NOW(6) cutoff stamped by enable(), consumed by altersFor().
+let cutoffAt = null;
 
 async function enable(conn) {
 	try {
@@ -35,7 +47,14 @@ async function enable(conn) {
 
 		await conn.pquery("SET GLOBAL log_output='TABLE'");
 		await conn.pquery("SET GLOBAL general_log='ON'");
-		await conn.pquery('TRUNCATE TABLE mysql.general_log');
+
+		// Stamp the cutoff AFTER logging is actually on, and BEFORE the
+		// caller's sync runs (the caller awaits this return before doing
+		// anything else) -- so no row the caller's own sync produces can
+		// ever fall before the cutoff.
+		const nowRows = await conn.pquery('SELECT NOW(6) AS ts');
+		cutoffAt = (nowRows && nowRows[0] && nowRows[0].ts) || null;
+
 		return { available: true };
 	} catch (ex) {
 		return { available: false, reason: `${(ex && ex.message) || ex}` };
@@ -46,6 +65,7 @@ async function disable(conn) {
 	try {
 		const state = priorState;
 		priorState = null;
+		cutoffAt = null;
 		if (state) {
 			// Restore GENERAL_LOG before LOG_OUTPUT: leaving general_log ON
 			// while log_output is mid-restore is a safe intermediate state;
@@ -56,27 +76,31 @@ async function disable(conn) {
 			if (state.logOutput) {
 				await conn.pquery(`SET GLOBAL log_output='${state.logOutput}'`);
 			}
-		} else {
-			// No prior state captured -- enable() never ran (or its SELECT
-			// failed before it could capture one). Fall back to the old
-			// unconditional OFF so disable() stays safe to call regardless.
-			await conn.pquery("SET GLOBAL general_log='OFF'");
 		}
+		// else: no prior state captured -- enable() never ran (or its SELECT
+		// failed before it could capture one). We do NOT know what the
+		// globals were before whatever DID run, so leave them untouched
+		// rather than forcing a hardcoded 'OFF' that could clobber a peer's
+		// deliberately-enabled general_log.
 	} catch (ex) {
 		// best-effort restore
 	}
 }
 
 /**
- * ALTER statements the server logged for one table. Filtered BY TABLE NAME, so
- * a concurrent suite on the same server cannot inflate the count.
+ * ALTER statements the server logged for one table. Filtered BY TABLE NAME
+ * AND by the enable()-time cutoff, so neither a concurrent suite on the same
+ * server nor a peer's pre-existing rows for a same-named table can inflate
+ * the count.
  */
 async function altersFor(conn, tableName) {
 	const rows = await conn.pquery(
 		`SELECT CONVERT(argument USING utf8mb4) AS q
 		   FROM mysql.general_log
 		  WHERE command_type = 'Query'
-		    AND CONVERT(argument USING utf8mb4) LIKE 'ALTER TABLE%${tableName}%'`,
+		    AND event_time >= ?
+		    AND CONVERT(argument USING utf8mb4) LIKE ?`,
+		[cutoffAt, `ALTER TABLE%${tableName}%`],
 	);
 	return (rows || []).map((r) => r.q);
 }

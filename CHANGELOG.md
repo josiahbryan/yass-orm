@@ -36,6 +36,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   alone" to "one bad column can fail its whole batch," and callers relying on the
   old per-column isolation should know about it.
 
+  **That coupling is amplified on Postgres.** `PostgresDialect.supportsMultiClauseAlterAdd`
+  is also `true`, and Postgres DDL is transactional — a multi-clause `ALTER TABLE`
+  there runs as a single all-or-nothing statement inside one implicit transaction,
+  so a bad column doesn't just fail its batch, it rolls the whole batch back with
+  no partial application at all. MySQL's failure mode above can still leave earlier
+  clauses applied depending on where the error occurs; Postgres's cannot.
+
   **The heal ledger is deliberately NOT batched.** `verifyAndHealColumns` re-issues
   `changedColumns[].sql` per column, so a shared batched string there would replay
   every ADD to heal one — a second full rebuild, in a path that only fires under
