@@ -8,10 +8,31 @@
  * `{ available: false, reason }` and the caller must SAY SO rather than
  * silently reporting a clean result -- a skip that cannot say why it skipped
  * is indistinguishable from a test that does not exist.
+ *
+ * `enable`/`disable` mutate GLOBAL server state (`general_log`, `log_output`),
+ * which is shared with every other connection on the server -- including a
+ * concurrent suite/agent on a shared dev MySQL. `disable` must restore what
+ * was ACTUALLY there before `enable` ran, not a hardcoded `'OFF'` -- a bare
+ * `'OFF'` would clobber a peer's own already-enabled `general_log`/
+ * `log_output` (e.g. a DBA debugging session, or another test run) the moment
+ * this suite's `after()` fires.
  */
+
+// Module-level, not per-call: `disable(conn)` is invoked with no arguments
+// carrying the prior state (matching the existing call sites), so the value
+// captured by `enable()` has to be remembered somewhere between the two calls.
+// Safe under mocha's default sequential execution, where enable/disable calls
+// are never interleaved across tests.
+let priorState = null;
 
 async function enable(conn) {
 	try {
+		const rows = await conn.pquery(
+			'SELECT @@global.general_log AS generalLog, @@global.log_output AS logOutput',
+		);
+		const row = (rows && rows[0]) || {};
+		priorState = { generalLog: row.generalLog, logOutput: row.logOutput };
+
 		await conn.pquery("SET GLOBAL log_output='TABLE'");
 		await conn.pquery("SET GLOBAL general_log='ON'");
 		await conn.pquery('TRUNCATE TABLE mysql.general_log');
@@ -23,7 +44,24 @@ async function enable(conn) {
 
 async function disable(conn) {
 	try {
-		await conn.pquery("SET GLOBAL general_log='OFF'");
+		const state = priorState;
+		priorState = null;
+		if (state) {
+			// Restore GENERAL_LOG before LOG_OUTPUT: leaving general_log ON
+			// while log_output is mid-restore is a safe intermediate state;
+			// the reverse order is not.
+			await conn.pquery(
+				`SET GLOBAL general_log=${state.generalLog ? "'ON'" : "'OFF'"}`,
+			);
+			if (state.logOutput) {
+				await conn.pquery(`SET GLOBAL log_output='${state.logOutput}'`);
+			}
+		} else {
+			// No prior state captured -- enable() never ran (or its SELECT
+			// failed before it could capture one). Fall back to the old
+			// unconditional OFF so disable() stays safe to call regardless.
+			await conn.pquery("SET GLOBAL general_log='OFF'");
+		}
 	} catch (ex) {
 		// best-effort restore
 	}

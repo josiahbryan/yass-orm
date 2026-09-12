@@ -1,9 +1,15 @@
 /* eslint-disable no-console */
 /* global describe, it, before, after */
 const { expect } = require('chai');
-const { buildAddColumnPlan } = require('../lib/sync-to-db');
+const { v4: uuid } = require('uuid');
+const YassORM = require('../lib');
+const config = require('../lib/config');
+const { dbh } = require('../lib/dbh');
+const { buildAddColumnPlan, syncSchemaToDb } = require('../lib/sync-to-db');
 const { MySQLDialect } = require('../lib/dialects/MySQLDialect');
 const { SQLiteDialect } = require('../lib/dialects/SQLiteDialect');
+const { captureAlterStatements } = require('./helpers/captureAlterStatements');
+const { mysqlGeneralLog } = require('./helpers/mysqlGeneralLog');
 
 describe('#schemaSync buildAddColumnPlan', () => {
 	const mysql = new MySQLDialect();
@@ -102,30 +108,23 @@ describe('#schemaSync buildAddColumnPlan', () => {
 	});
 });
 
-const { v4: uuid } = require('uuid');
-const YassORM = require('../lib');
-const config = require('../lib/config');
-const { dbh } = require('../lib/dbh');
-const { syncSchemaToDb } = require('../lib/sync-to-db');
-const {
-	captureAlterStatements,
-} = require('./helpers/captureAlterStatements');
-const { mysqlGeneralLog } = require('./helpers/mysqlGeneralLog');
-
 describe('#schemaSync batched ADD COLUMN (db-backed)', function batchedAddSuite() {
 	this.timeout(60000);
 
 	const tableA = `yass_batch_a_${uuid().replace(/-/g, '')}`;
-	const tableB = `yass_batch_b_${uuid().replace(/-/g, '')}`;
 
-	const base = (table) => ({ types: t }) => ({
-		table,
-		schema: { id: t.idKey },
-	});
-	const plusTwo = (table) => ({ types: t }) => ({
-		table,
-		schema: { id: t.idKey, notice: t.string, noticeDetail: t.text },
-	});
+	const base =
+		(table) =>
+		({ types: t }) => ({
+			table,
+			schema: { id: t.idKey },
+		});
+	const plusTwo =
+		(table) =>
+		({ types: t }) => ({
+			table,
+			schema: { id: t.idKey, notice: t.string, noticeDetail: t.text },
+		});
 
 	before(function beforeBatchedAddSuite() {
 		if ((config.dialect || 'mysql') !== 'mysql') {
@@ -136,8 +135,6 @@ describe('#schemaSync batched ADD COLUMN (db-backed)', function batchedAddSuite(
 	after(async () => {
 		const conn = await dbh({ ignoreCachedConnections: true });
 		await conn.pquery(`DROP TABLE IF EXISTS \`${tableA}\``);
-		await conn.pquery(`DROP TABLE IF EXISTS \`${tableB}\``);
-		await mysqlGeneralLog.disable(conn);
 		await conn.end();
 	});
 
@@ -145,105 +142,194 @@ describe('#schemaSync batched ADD COLUMN (db-backed)', function batchedAddSuite(
 		await syncSchemaToDb(YassORM.convertDefinition(base(tableA)));
 
 		const conn = await dbh({ ignoreCachedConnections: true });
-		const log = await mysqlGeneralLog.enable(conn);
-
-		const cap = captureAlterStatements.install();
 		try {
-			await syncSchemaToDb(YassORM.convertDefinition(plusTwo(tableA)));
-		} finally {
-			cap.restore();
-		}
+			const log = await mysqlGeneralLog.enable(conn);
 
-		// WITNESS 1 -- yass-orm's own executed-statement array. Always runs.
-		const executed = cap.executedAltersFor(tableA);
-		expect(
-			executed,
-			`expected ONE batched ALTER, got:\n${executed.join('\n')}`,
-		).to.have.length(1);
-		expect(executed[0]).to.include('notice');
-		expect(executed[0]).to.include('noticeDetail');
+			const cap = captureAlterStatements.install();
+			try {
+				await syncSchemaToDb(YassORM.convertDefinition(plusTwo(tableA)));
+			} finally {
+				cap.restore();
+			}
 
-		// WITNESS 2 -- the SERVER's own log. Independent failure mode.
-		if (log.available) {
-			const serverAlters = await mysqlGeneralLog.altersFor(conn, tableA);
+			// WITNESS 1 -- yass-orm's own executed-statement array. Always runs.
+			const executed = cap.executedAltersFor(tableA);
 			expect(
-				serverAlters,
-				`server logged:\n${serverAlters.join('\n')}`,
+				executed,
+				`expected ONE batched ALTER, got:\n${executed.join('\n')}`,
 			).to.have.length(1);
-		} else {
-			console.warn(
-				`SKIPPED the general-log witness: ${log.reason}. Witness 1 still asserted.`,
-			);
+			// `notice` is a literal substring of `noticeDetail`, so asserting it
+			// separately would be redundant with this check.
+			expect(executed[0]).to.include('noticeDetail');
+
+			// WITNESS 2 -- the SERVER's own log. Independent failure mode.
+			if (log.available) {
+				const serverAlters = await mysqlGeneralLog.altersFor(conn, tableA);
+				expect(
+					serverAlters,
+					`server logged:\n${serverAlters.join('\n')}`,
+				).to.have.length(1);
+			} else {
+				console.warn(
+					`SKIPPED the general-log witness: ${log.reason}. Witness 1 still asserted.`,
+				);
+			}
+		} finally {
+			// F6: disable + end run even if an assertion above throws, so this
+			// test can never leak GLOBAL general_log=ON or a connection.
+			await mysqlGeneralLog.disable(conn);
+			await conn.end();
 		}
-		await mysqlGeneralLog.disable(conn);
-		await conn.end();
 	});
 
-	// AC7 end-to-end: the ledger the heal path replays is still per-column.
-	it('records a SINGLE-COLUMN heal statement per added column', async () => {
-		const dropped = `yass_batch_led_${uuid().replace(/-/g, '')}`;
-		await syncSchemaToDb(YassORM.convertDefinition(base(dropped)));
+	// AC7 end-to-end: prove the heal path itself re-issues a SINGLE-COLUMN
+	// statement, by actually driving it -- not by counting generator calls
+	// (that instrument passes on the unfixed tree and would still pass if the
+	// batched string leaked into the heal ledger; see the RED-probe evidence
+	// in task-3-report.md).
+	//
+	// Mechanism: patch the EXECUTION-ONLY generator (`generateAlterAddColumns`,
+	// plural) so the batched ALTER it returns omits `noticeDetail` -- as if a
+	// partial apply had happened. The heal ledger is built from
+	// `generateAlterAddColumn` (singular), which we do NOT patch, so it still
+	// carries the real single-column SQL. `syncSchemaToDb`'s post-sync
+	// verifyAndHealColumns pass must then find `noticeDetail` missing and
+	// re-issue exactly that column's ledger entry.
+	it('heals a column missing from the executed batch with a single-column re-issue', async () => {
+		const table = `yass_batch_heal_${uuid().replace(/-/g, '')}`;
+		await syncSchemaToDb(YassORM.convertDefinition(base(table)));
 
-		const { MySQLDialect } = require('../lib/dialects/MySQLDialect');
-		const seen = [];
-		const originalGenerate = MySQLDialect.prototype.generateAlterAddColumn;
-		MySQLDialect.prototype.generateAlterAddColumn = function patched(
-			table,
-			fieldData,
+		const originalGenerateMany = MySQLDialect.prototype.generateAlterAddColumns;
+		MySQLDialect.prototype.generateAlterAddColumns = function patched(
+			tableName,
+			fieldDataList,
 		) {
-			const out = originalGenerate.call(this, table, fieldData);
-			if (table === dropped) {
-				seen.push(out);
+			if (tableName === table) {
+				const filtered = (fieldDataList || []).filter(
+					(f) => f.field !== 'noticeDetail',
+				);
+				return originalGenerateMany.call(this, tableName, filtered);
 			}
-			return out;
+			return originalGenerateMany.call(this, tableName, fieldDataList);
 		};
+
+		const warnLines = [];
+		// eslint-disable-next-line no-console
+		const originalWarn = console.warn;
+		// eslint-disable-next-line no-console
+		console.warn = (...args) => {
+			warnLines.push(args.map((a) => `${a}`).join(' '));
+		};
+
 		try {
-			await syncSchemaToDb(YassORM.convertDefinition(plusTwo(dropped)));
+			await syncSchemaToDb(YassORM.convertDefinition(plusTwo(table)));
 		} finally {
-			MySQLDialect.prototype.generateAlterAddColumn = originalGenerate;
+			// eslint-disable-next-line no-console
+			console.warn = originalWarn;
+			MySQLDialect.prototype.generateAlterAddColumns = originalGenerateMany;
 		}
 
-		// Two single-column statements were generated for the ledger even though
-		// ONE batched statement was executed.
-		expect(seen).to.have.length(2);
-		seen.forEach((stmt) => {
-			expect(stmt.match(/ADD /g)).to.have.length(1);
-		});
+		const reissueLines = warnLines.filter((line) =>
+			line.includes('re-issuing:'),
+		);
+		expect(
+			reissueLines,
+			`expected exactly one re-issue warning, got:\n${warnLines.join('\n')}`,
+		).to.have.length(1);
+		expect(reissueLines[0]).to.include('noticeDetail');
+		expect(reissueLines[0].match(/ADD /g)).to.have.length(1);
+		// The re-issued SQL must be SINGLE-COLUMN. Check the quoted identifier
+		// `` `notice` `` rather than the bare substring "notice" -- "notice" is
+		// a literal substring of "noticeDetail" and a bare search would always
+		// match.
+		expect(reissueLines[0]).to.not.include('`notice`');
 
 		const conn = await dbh({ ignoreCachedConnections: true });
-		await conn.pquery(`DROP TABLE IF EXISTS \`${dropped}\``);
-		await conn.end();
+		try {
+			const cols = await conn.pquery(`SHOW COLUMNS FROM \`${table}\``);
+			const names = cols.map((c) => c.Field);
+			expect(names).to.include('notice');
+			expect(names).to.include('noticeDetail');
+		} finally {
+			await conn.pquery(`DROP TABLE IF EXISTS \`${table}\``);
+			await conn.end();
+		}
 	});
 
-	// AC4 -- batching is PER TABLE.
+	// AC4 -- batching is PER TABLE: two tables, each getting the same two
+	// columns, inside ONE capture window. Each table's ADD alters must be
+	// length 1, and no captured statement may name both tables -- a genuine
+	// cross-table leak this test can actually detect, since both tables are
+	// altered inside the same install/restore window.
 	it('keeps columns on different tables in separate statements', async () => {
-		await syncSchemaToDb(YassORM.convertDefinition(base(tableB)));
+		const tableX = `yass_batch_x_${uuid().replace(/-/g, '')}`;
+		const tableY = `yass_batch_y_${uuid().replace(/-/g, '')}`;
+		await syncSchemaToDb(YassORM.convertDefinition(base(tableX)));
+		await syncSchemaToDb(YassORM.convertDefinition(base(tableY)));
 
 		const cap = captureAlterStatements.install();
 		try {
-			await syncSchemaToDb(YassORM.convertDefinition(plusTwo(tableB)));
+			await syncSchemaToDb(YassORM.convertDefinition(plusTwo(tableX)));
+			await syncSchemaToDb(YassORM.convertDefinition(plusTwo(tableY)));
 		} finally {
 			cap.restore();
 		}
 
-		const forB = cap.executedAltersFor(tableB);
-		expect(forB).to.have.length(1);
-		// No statement may name both tables.
-		expect(forB[0]).to.not.include(tableA);
+		try {
+			const forX = cap.executedAltersFor(tableX);
+			const forY = cap.executedAltersFor(tableY);
+			expect(forX, `table X statements:\n${forX.join('\n')}`).to.have.length(1);
+			expect(forY, `table Y statements:\n${forY.join('\n')}`).to.have.length(1);
+
+			// No captured statement may name BOTH tables.
+			cap.executedAlterStatements().forEach((stmt) => {
+				if (stmt.includes(tableX)) {
+					expect(stmt, `statement named both tables:\n${stmt}`).to.not.include(
+						tableY,
+					);
+				}
+				if (stmt.includes(tableY)) {
+					expect(stmt, `statement named both tables:\n${stmt}`).to.not.include(
+						tableX,
+					);
+				}
+			});
+		} finally {
+			const conn = await dbh({ ignoreCachedConnections: true });
+			try {
+				await conn.pquery(`DROP TABLE IF EXISTS \`${tableX}\``);
+				await conn.pquery(`DROP TABLE IF EXISTS \`${tableY}\``);
+			} finally {
+				await conn.end();
+			}
+		}
 	});
 
 	// AC2 -- the resulting schema must be identical to the per-column path,
-	// column ORDER included.
+	// column ORDER included -- AND the per-column arm must be PROVEN to have
+	// actually executed per-column (more than one ADD alter), not merely
+	// assumed from the capability override taking effect.
 	it('produces a schema identical to the per-column path', async () => {
 		const batched = `yass_batch_eq_b_${uuid().replace(/-/g, '')}`;
 		const perCol = `yass_batch_eq_p_${uuid().replace(/-/g, '')}`;
-		const { MySQLDialect } = require('../lib/dialects/MySQLDialect');
 
 		await syncSchemaToDb(YassORM.convertDefinition(base(batched)));
 		await syncSchemaToDb(YassORM.convertDefinition(base(perCol)));
 
 		// Batched run (normal behaviour).
-		await syncSchemaToDb(YassORM.convertDefinition(plusTwo(batched)));
+		const batchedCap = captureAlterStatements.install();
+		try {
+			await syncSchemaToDb(YassORM.convertDefinition(plusTwo(batched)));
+		} finally {
+			batchedCap.restore();
+		}
+		const batchedAdds = batchedCap
+			.executedAltersFor(batched)
+			.filter((s) => /\bADD\b/.test(s));
+		expect(
+			batchedAdds,
+			`expected exactly 1 batched ADD alter, got:\n${batchedAdds.join('\n')}`,
+		).to.have.length(1);
 
 		// Per-column run: force the capability OFF for this one sync.
 		const descriptor = Object.getOwnPropertyDescriptor(
@@ -255,28 +341,51 @@ describe('#schemaSync batched ADD COLUMN (db-backed)', function batchedAddSuite(
 			'supportsMultiClauseAlterAdd',
 			{ get: () => false, configurable: true },
 		);
+		const perColCap = captureAlterStatements.install();
 		try {
 			await syncSchemaToDb(YassORM.convertDefinition(plusTwo(perCol)));
 		} finally {
-			Object.defineProperty(
-				MySQLDialect.prototype,
-				'supportsMultiClauseAlterAdd',
-				descriptor,
-			);
+			perColCap.restore();
+			// Guard: only re-define if a descriptor was actually captured --
+			// `defineProperty` with an `undefined` descriptor throws.
+			if (descriptor) {
+				Object.defineProperty(
+					MySQLDialect.prototype,
+					'supportsMultiClauseAlterAdd',
+					descriptor,
+				);
+			} else {
+				delete MySQLDialect.prototype.supportsMultiClauseAlterAdd;
+			}
 		}
+		// CONTROL: prove the override actually took effect. yass-orm may
+		// auto-inject additional columns (e.g. isDeleted) alongside
+		// notice/noticeDetail, so the true count is "more than one", not a
+		// hardcoded 2 -- Task 4 measured 3 ADD alters on a raw table.
+		const perColAdds = perColCap
+			.executedAltersFor(perCol)
+			.filter((s) => /\bADD\b/.test(s));
+		expect(
+			perColAdds.length,
+			`expected MORE THAN 1 separate per-column ADD alter, got:\n${perColAdds.join(
+				'\n',
+			)}`,
+		).to.be.greaterThan(1);
 
 		const conn = await dbh({ ignoreCachedConnections: true });
-		const read = async (name) => {
-			const rows = await conn.pquery(`SHOW CREATE TABLE \`${name}\``);
-			const ddl = rows[0]['Create Table'] || rows[0].Table_Create || '';
-			return ddl.replace(new RegExp(name, 'g'), 'T');
-		};
-		const ddlBatched = await read(batched);
-		const ddlPerCol = await read(perCol);
-		await conn.pquery(`DROP TABLE IF EXISTS \`${batched}\``);
-		await conn.pquery(`DROP TABLE IF EXISTS \`${perCol}\``);
-		await conn.end();
-
-		expect(ddlBatched).to.equal(ddlPerCol);
+		try {
+			const read = async (name) => {
+				const rows = await conn.pquery(`SHOW CREATE TABLE \`${name}\``);
+				const ddl = rows[0]['Create Table'] || rows[0].Table_Create || '';
+				return ddl.replace(new RegExp(name, 'g'), 'T');
+			};
+			const ddlBatched = await read(batched);
+			const ddlPerCol = await read(perCol);
+			expect(ddlBatched).to.equal(ddlPerCol);
+		} finally {
+			await conn.pquery(`DROP TABLE IF EXISTS \`${batched}\``);
+			await conn.pquery(`DROP TABLE IF EXISTS \`${perCol}\``);
+			await conn.end();
+		}
 	});
 });
