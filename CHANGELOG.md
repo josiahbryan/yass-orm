@@ -9,6 +9,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A table's ADD COLUMNs batch into ONE `ALTER` (2.8.0, BDL-3681).** When a single
+  schema-sync run added N columns to the same table, `lib/sync-to-db.js` pushed N
+  complete standalone `ALTER TABLE` statements and `promiseMap` executed them one
+  at a time. MySQL performs a full table rebuild per `ALTER` on any table that
+  cannot take `ALGORITHM=INSTANT`, so N columns cost N rebuilds — measured on a
+  1.5M-row table, that was tens of minutes of fleet stall per extra column.
+
+  The `join(';\n')` in the debug log was only ever a presentation artifact; the
+  statements were always executed separately, so the log read like one batched
+  statement and was not.
+
+  `ALTER TABLE t ADD a ..., ADD b ...` is now emitted when the dialect opts in via
+  the new `supportsMultiClauseAlterAdd` getter. It defaults to **false** on
+  `BaseDialect`; MySQL and Postgres opt in, **SQLite does not** — measured against
+  both better-sqlite3 and node:sqlite, a multi-ADD is rejected with
+  `near ",": syntax error` while a single-ADD control passes. Any dialect that has
+  not opted in keeps the previous per-column behaviour exactly.
+
+  **Behaviour change worth flagging: within a single table, a failing ADD clause
+  now rejects its sibling columns in the same statement**, where previously each
+  column stood alone in its own `ALTER` and a bad column failed by itself. The
+  per-column heal pass (`verifyAndHealColumns`, which replays each column's own
+  single-column SQL) recovers any columns that should have landed, so this is not
+  a data-loss risk — but it is a real semantic change from "one bad column fails
+  alone" to "one bad column can fail its whole batch," and callers relying on the
+  old per-column isolation should know about it.
+
+  **The heal ledger is deliberately NOT batched.** `verifyAndHealColumns` re-issues
+  `changedColumns[].sql` per column, so a shared batched string there would replay
+  every ADD to heal one — a second full rebuild, in a path that only fires under
+  connection churn, with the duplicate-column errors swallowed by design so it
+  would look healthy. `buildAddColumnPlan()` returns the executed statements and
+  the per-column ledger as two independent values for exactly this reason.
+
+  Scope is **ADD-only**. `CHANGE` is untouched because `notNullPreflightBySql` is
+  keyed by the exact SQL string of a CHANGE statement, and batching those would
+  silently orphan every NOT NULL preflight.
+
+  Note: `appliedCount` counts SQL *statements*, so a batched table now reports 1
+  applied instead of N. That is intended.
+
+  Schema-sync also now prints a table's approximate row count and data/index size
+  before an ADD batch, so an operator can see they are about to stall a large
+  table. The lookup is best-effort and can never block a schema change.
+
 - **`idleTimeout` is configurable (2.7.0).** `lib/dbh.js` hardcoded
   `idleTimeout: 600` into **both** pool configs — the write pool and every
   `readonlyNodes` entry — so a value set in `.yass-orm.js` or passed as
