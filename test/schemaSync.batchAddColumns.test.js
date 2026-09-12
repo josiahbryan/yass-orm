@@ -48,6 +48,7 @@ describe('#schemaSync buildAddColumnPlan', () => {
 		expect(first.sql).to.not.include('noticeDetail');
 
 		expect(second.col).to.equal('noticeDetail');
+		expect(second.type).to.equal('ADD');
 		expect(second.sql).to.include('noticeDetail');
 		// A single-column ledger entry names exactly ONE column.
 		expect(second.sql.match(/ADD /g)).to.have.length(1);
@@ -387,5 +388,56 @@ describe('#schemaSync batched ADD COLUMN (db-backed)', function batchedAddSuite(
 			await conn.pquery(`DROP TABLE IF EXISTS \`${perCol}\``);
 			await conn.end();
 		}
+	});
+
+	it('logs the table size before adding columns', async () => {
+		const sized = `yass_batch_size_${uuid().replace(/-/g, '')}`;
+		await syncSchemaToDb(YassORM.convertDefinition(base(sized)));
+
+		const cap = captureAlterStatements.install();
+		try {
+			await syncSchemaToDb(YassORM.convertDefinition(plusTwo(sized)));
+		} finally {
+			cap.restore();
+		}
+
+		const sizeLines = cap.captured.filter(
+			(l) => l.includes(sized) && l.includes('column(s) to'),
+		);
+		expect(
+			sizeLines,
+			`expected a pre-ALTER size line, captured:\n${cap.captured.join('\n')}`,
+		).to.have.length.greaterThan(0);
+		expect(sizeLines[0]).to.match(/rows/);
+
+		const conn = await dbh({ ignoreCachedConnections: true });
+		await conn.pquery(`DROP TABLE IF EXISTS \`${sized}\``);
+		await conn.end();
+	});
+
+	// The important half of AC8: a failed size lookup must NEVER block a
+	// schema change.
+	it('still applies the ALTER when the size lookup throws', async () => {
+		const broken = `yass_batch_brk_${uuid().replace(/-/g, '')}`;
+		await syncSchemaToDb(YassORM.convertDefinition(base(broken)));
+
+		const original = MySQLDialect.prototype.generateTableSizeQuery;
+		MySQLDialect.prototype.generateTableSizeQuery = function boom() {
+			throw new Error('size lookup exploded on purpose');
+		};
+		try {
+			await syncSchemaToDb(YassORM.convertDefinition(plusTwo(broken)));
+		} finally {
+			MySQLDialect.prototype.generateTableSizeQuery = original;
+		}
+
+		const conn = await dbh({ ignoreCachedConnections: true });
+		const cols = await conn.pquery(`SHOW COLUMNS FROM \`${broken}\``);
+		const names = cols.map((c) => c.Field);
+		await conn.pquery(`DROP TABLE IF EXISTS \`${broken}\``);
+		await conn.end();
+
+		expect(names).to.include('notice');
+		expect(names).to.include('noticeDetail');
 	});
 });

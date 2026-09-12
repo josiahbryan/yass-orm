@@ -49,6 +49,8 @@ describe('#schemaSync batched ADD on a rebuild-forced table', function rebuildFo
 		try {
 			await conn.pquery(
 				`ALTER TABLE \`${table}\` ADD probe_col int, ALGORITHM=INSTANT`,
+				undefined,
+				{ silenceErrors: true },
 			);
 			// It SUCCEEDED -- the fixture did not reproduce on this server.
 			await conn.pquery(`ALTER TABLE \`${table}\` DROP COLUMN probe_col`);
@@ -69,7 +71,7 @@ describe('#schemaSync batched ADD on a rebuild-forced table', function rebuildFo
 		}
 	});
 
-	it('issues ONE ALTER for two columns on an INSTANT-refusing table', async function instantTest() {
+	it('issues ONE batched ALTER (notice + noticeDetail, plus yass-orm-injected columns) on an INSTANT-refusing table', async function instantTest() {
 		if (!fixtureRefusesInstant) {
 			// Say WHY. A skip that cannot name its reason is indistinguishable
 			// from a test that does not exist.
