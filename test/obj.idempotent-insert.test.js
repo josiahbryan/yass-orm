@@ -79,6 +79,18 @@ const twoUniqueDef = ({ types: t }) => ({
 	includeCommonFields: false,
 });
 
+/**
+ * `unique: 1` rather than `unique: true`. schema-sync emits a REAL unique
+ * index for this (it tests truthiness), so the deriver must see it too --
+ * a strict `=== true` here made the DDL emitter and the deriver disagree.
+ */
+const truthyUniqueDef = ({ types: t }) => ({
+	table: 'ci_truthy_unique',
+	schema: { id: t.uuidKey, slug: t.string },
+	indexes: { slugIdx: { columns: ['slug'], unique: 1 } },
+	includeCommonFields: false,
+});
+
 /** Zero unique indexes -> no derivable conflict target, must throw. */
 const noUniqueDef = ({ types: t }) => ({
 	table: 'ci_no_unique',
@@ -94,6 +106,7 @@ describe('#Model.createIgnore (BC-3823)', function suite() {
 	let Pair;
 	let TwoUnique;
 	let NoUnique;
+	let TruthyUnique;
 
 	/** Bind a loaded model to this suite's SQLite handle. */
 	const bind = (Model) => {
@@ -112,6 +125,7 @@ describe('#Model.createIgnore (BC-3823)', function suite() {
 		Pair = bind(await Orm.loadDefinition(pairDef));
 		TwoUnique = bind(await Orm.loadDefinition(twoUniqueDef));
 		NoUnique = bind(await Orm.loadDefinition(noUniqueDef));
+		TruthyUnique = bind(await Orm.loadDefinition(truthyUniqueDef));
 	});
 
 	beforeEach(async () => {
@@ -375,6 +389,15 @@ describe('#Model.createIgnore (BC-3823)', function suite() {
 			expect(
 				NoUnique.resolveConflictColumns({ conflictColumns: ['label'] }),
 			).to.deep.equal(['label']);
+		});
+
+		it('accepts `unique: 1`, matching what schema-sync actually emits DDL for', () => {
+			// sync-to-db decides uniqueness with a TRUTHY test, so `unique: 1`
+			// produces a real UNIQUE index. A strict `=== true` here made the
+			// deriver blind to an index that physically exists and throw
+			// "declares no unique:true index" on a model that has one. Both
+			// sides now read isUniqueIndexSpec from one module.
+			expect(TruthyUnique.resolveConflictColumns()).to.deep.equal(['slug']);
 		});
 
 		it('THROWS when two unique indexes make the target ambiguous, naming both', () => {

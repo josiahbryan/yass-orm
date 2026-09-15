@@ -55,6 +55,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   incapable of catching it. It is resolved and passed anyway because a future
   targeted-conflict or `RETURNING *` optimization would start reading it.
 
+  **Both the column resolver AND the unique predicate are now shared**
+  (`lib/resolveIndexColumns.js`). The first cut shared only the columns and left
+  `obj.js` testing `spec.unique === true` while `sync-to-db.js` tested
+  `!!indexSpec.unique` — so a def spelled `unique: 1` got a REAL unique index in
+  DDL and was invisible to the deriver, which then threw *"declares no
+  unique:true index"* on a model whose constraint plainly existed. That is the
+  exact drift class the extraction was sold as preventing, one line over; caught
+  in review, pinned by a test, and truthy wins because the DDL emitter is what
+  decides what physically exists.
+
   `resolveIndexColumns` moved to `lib/resolveIndexColumns.js` so `sync-to-db`
   (which emits the DDL) and `obj.js` (which derives the conflict target) read
   one definition. Two copies could disagree about which key names count as an
