@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`lib/finder.js` no longer prints bound parameter values to stdout (BDL-3886).**
+  Three ungated debug `console.log` calls on the `Model.find()` / custom-query-filter
+  SUCCESS path printed the caller's bound values: `:322` (raw `fieldArgs`/`whereArgs`
+  after the `q` block), `:529` (finder's local positional `debugSql` output **and** the
+  raw `{ query, filters }` object), and `:633` (`filterData`, via `ctx.debugSql`).
+  The `q` search string also leaked in its `%`-interleaved LIKE form, which is
+  losslessly reversible. The lines still print their diagnostic shape: placeholder
+  SQL, arg counts, query/filter key names, timing, and the id count. Only the
+  values are gone. Pinned by `test/finder.no-bound-values-on-stdout.test.js`, which
+  runs the finder in a child process and checks stdout and stderr separately for
+  both the literal and the wild form.
+
 ### Added
 
 - **A table's ADD COLUMNs batch into ONE `ALTER` (2.8.0, BDL-3681).** When a single
