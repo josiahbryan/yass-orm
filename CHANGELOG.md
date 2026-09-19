@@ -9,6 +9,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`Model.find({ someField: value })` no longer fails with MySQL 1064 on every call
+  (BDL-3893).** Both field-equality branches of `lib/finder.js` hoisted the field name
+  into a local `quoted = dbQuote(fieldName)` and then handed that already-quoted value
+  to `prefixedField()`, which quotes **both** of its arguments again. The emitted clause
+  was `` `table`.``field`` `` — a doubled pair — and MySQL rejects it with
+  `errno 1064, SQLState 42000` deterministically, so the plainest `find()` call shape
+  could never succeed at all. Measured against a real MySQL 8.4 table:
+  ``AND `widgets`.``name`` = ?`` → 1064; now ``AND `widgets`.`name` = ?`` → rows.
+
+  The root defect is that quoting was not idempotent, not that two call sites got it
+  wrong: `dbQuote` is published on the finder's hook context, so third-party
+  `mutateQuery`/`mutateJoins`/`mutateSort` code reaches it and cannot know whether a
+  value has been quoted yet. `dbQuote` is therefore now **idempotent** —
+  `dbQuote(dbQuote(x)) === dbQuote(x)` — returning an already well-formed quoted
+  identifier untouched, including the table-qualified `` `t`.`c` `` form that
+  `prefixedField()` itself produces. Stripping and re-wrapping that form would have
+  collapsed it to the single, **wrong** name `` `t.c` ``, read silently rather than
+  erroring. Every *unquoted* input is byte-identical to the old behaviour, including
+  the dotted `db.table` form this repo's own fixtures use.
+
+  Note the deliberate non-choice: a stray backtick inside an identifier is **dropped**
+  rather than escaped by doubling. MySQL's `` `a``b` `` contains interior backticks, so
+  it would fail the already-quoted test and gain another pair on the next call —
+  doubling and idempotency cannot both hold, and idempotency is what callers here rely
+  on. Dropping also means a value reaching `dbQuote` cannot break out of its own quotes.
+
+  The two call sites now pass the **bare** field name, which is what `prefixedField()`
+  wants; that change is defence-in-depth rather than the fix — measured, the idempotency
+  change alone is sufficient, and the call-site change alone is **not** (it leaves
+  `dbQuote` re-quotable for every other caller). Pinned by
+  `test/finder.find-field-quoting.test.js`, which provisions its own table, exercises
+  **both** branches, proves which branch each model takes (they emit a byte-identical
+  clause, so the SQL alone cannot tell a complete fix from a half one), and asserts the
+  idempotency contract directly.
+
 - **`lib/finder.js` no longer prints bound parameter values to stdout (BDL-3886).**
   Three ungated debug `console.log` calls on the `Model.find()` / custom-query-filter
   SUCCESS path printed the caller's bound values: `:322` (raw `fieldArgs`/`whereArgs`
