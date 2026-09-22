@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Schema-sync column comparator never converged: no-op `ALTER TABLE ... CHANGE
+  COLUMN` re-issued on every sync, forever (BDL-3981).** Two independent
+  comparisons in `mysqlSchemaUpdate`'s column-diff loop could never be satisfied
+  by the statement they triggered, so `syncSchemaToDb` re-decided the same
+  columns needed changing on every tick. Each statement took an exclusive
+  metadata lock on a hot table and changed nothing. Measured on production: 19
+  recurring ALTER digests, 219 executions each; on an ordinary day 100% of
+  production column DDL was this defect, and it is the root cause under BDL-3956
+  (prod lock-wait timeouts killing the noon pipeline tick).
+
+  - **Class A — `Key = UNI`.** A column whose uniqueness is declared in the def's
+    `indexes` block carries no column-level `key`, while `DESCRIBE` reports
+    `Key='UNI'`. The carve-out chain covered `MUL` (*"Multiple keys report
+    oddly"*) and not `UNI`. This one is structurally non-convergent rather than
+    merely noisy: `generateAlterModifyColumn` is explicitly passed
+    `{ ignore: ['key'] }`, so the `CHANGE COLUMN` it emits **cannot** alter index
+    state. Uniqueness is owned by the index pass, which reads `getTableIndexes()`
+    rather than `SHOW FULL COLUMNS` — verified in both directions (it still
+    creates a dropped unique index and still drops one the def no longer
+    declares), and verified to behave identically before the fix, so ignoring
+    `key` in the column pass loses no coverage.
+  - **Class B — a NUMBER default vs a STRING default.** A def's `.default(n)` is
+    stored verbatim as a number while `DESCRIBE` always returns `Default` as a
+    string, and the two were compared with `!==`. The tell was the comparator's
+    own output, `a=1, b=1` — equal on screen, counted unequal in code. Affects
+    every numeric default, not just `1`; an existing carve-out masked
+    `default: 0` only for types matching `/^int/`, so `t.real.default(0)` churned
+    where `t.int.default(0)` did not.
+
+  Both fixes are **additive carve-out clauses** (+29/−0) — no existing clause was
+  relaxed or removed. The two tempting one-line fixes are deliberately avoided and
+  both are pinned by tests: loosening the compare to `==` makes `'' == 0` true and
+  silently regresses **BDL-3142** (a missing `DEFAULT 0` would never be
+  corrected), and coercing both operands globally breaks the `null` carve-outs
+  where `bk === 1` is live for `.nullable()` columns — creating a brand-new
+  churn-forever bug of exactly the class this removes.
+
+  `test/schemaSync.columnComparatorConvergence.test.js` runs against a real
+  database, on a table `schema-sync` itself just created (converged by
+  construction), and asserts zero mis-compares plus `applied === 0`. It carries
+  five red arms proving genuine drift — type, default, nullability, BDL-3142
+  drift, and `.nullable()` silence — is still caught and corrected. Every arm was
+  mutation-verified: each of the four candidate mistakes above turns a specific,
+  named test red.
+
 ### Added
 
 - **`Model.createIgnore()` — the model-layer face of `dbh.createIgnore` (2.8.0).**
