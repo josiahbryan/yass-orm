@@ -9,6 +9,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Schema-sync column comparator never converged: no-op `ALTER TABLE ... CHANGE
+  COLUMN` re-issued on every sync, forever (BDL-3981).** Two independent
+  comparisons in `mysqlSchemaUpdate`'s column-diff loop could never be satisfied
+  by the statement they triggered, so `syncSchemaToDb` re-decided the same
+  columns needed changing on every tick. Each statement took an exclusive
+  metadata lock on a hot table and changed nothing. Measured on production: 19
+  recurring ALTER digests, 219 executions each; on an ordinary day 100% of
+  production column DDL was this defect, and it is the root cause under BDL-3956
+  (prod lock-wait timeouts killing the noon pipeline tick).
+
+  - **Class A — `Key = UNI`.** A column whose uniqueness is declared in the def's
+    `indexes` block carries no column-level `key`, while `DESCRIBE` reports
+    `Key='UNI'`. The carve-out chain covered `MUL` (*"Multiple keys report
+    oddly"*) and not `UNI`. This one is structurally non-convergent rather than
+    merely noisy: `generateAlterModifyColumn` is explicitly passed
+    `{ ignore: ['key'] }`, so the `CHANGE COLUMN` it emits **cannot** alter index
+    state. Uniqueness is owned by the index pass, which reads `getTableIndexes()`
+    rather than `SHOW FULL COLUMNS` — verified in both directions (it still
+    creates a dropped unique index and still drops one the def no longer
+    declares), and verified to behave identically before the fix, so ignoring
+    `key` in the column pass loses no coverage.
+  - **Class B — a NUMBER default vs a STRING default.** A def's `.default(n)` is
+    stored verbatim as a number while `DESCRIBE` always returns `Default` as a
+    string, and the two were compared with `!==`. The tell was the comparator's
+    own output, `a=1, b=1` — equal on screen, counted unequal in code. Affects
+    every numeric default, not just `1`; an existing carve-out masked
+    `default: 0` only for types matching `/^int/`, so `t.real.default(0)` churned
+    where `t.int.default(0)` did not.
+
+  Both fixes are **additive carve-out clauses** (+29/−0) — no existing clause was
+  relaxed or removed. The two tempting one-line fixes are deliberately avoided and
+  both are pinned by tests: loosening the compare to `==` makes `'' == 0` true and
+  silently regresses **BDL-3142** (a missing `DEFAULT 0` would never be
+  corrected), and coercing both operands globally breaks the `null` carve-outs
+  where `bk === 1` is live for `.nullable()` columns — creating a brand-new
+  churn-forever bug of exactly the class this removes.
+
+  `test/schemaSync.columnComparatorConvergence.test.js` runs against a real
+  database, on a table `schema-sync` itself just created (converged by
+  construction), and asserts zero mis-compares plus `applied === 0`. It carries
+  five red arms proving genuine drift — type, default, nullability, BDL-3142
+  drift, and `.nullable()` silence — is still caught and corrected. Every arm was
+  mutation-verified: each of the four candidate mistakes above turns a specific,
+  named test red.
+
 - **`Model.find({ someField: value })` no longer fails with MySQL 1064 on every call
   (BDL-3893).** Both field-equality branches of `lib/finder.js` hoisted the field name
   into a local `quoted = dbQuote(fieldName)` and then handed that already-quoted value
@@ -57,6 +102,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   both the literal and the wild form.
 
 ### Added
+
+- **`Model.createIgnore()` — the model-layer face of `dbh.createIgnore` (2.8.0).**
+  `lib/dbh.js:1327` has shipped the race-free `INSERT IGNORE` / `ON CONFLICT DO
+  NOTHING` primitive for a while, but nothing reached it from a model: `lib/obj.js`
+  had `create`, `findOrCreate` and `get` and no `createIgnore`. Measured before
+  the change, `grep -c createIgnore lib/obj.js` = **0**, with `findOrCreate` as a
+  firing positive control at `obj.js:1311` and a fresh-nonce negative control at 0.
+
+  ```js
+  const row = await Model.createIgnore({ tenant, itemKey });
+  if (row === null) {
+      // a UNIQUE/PK conflict SKIPPED the insert — go read the occupant
+  }
+  ```
+
+  Returns the inflated instance, or **`null`** on conflict. It never throws a
+  duplicate-key error, and it never opens the search-then-create window
+  `findOrCreate` has by construction. CHECK / NOT NULL / FK errors still throw.
+  Hooks (`afterCreateHook`, `afterChangeHook`, the global change hook) fire on
+  the inserted path **only** — a conflict is not a create, and telling
+  subscribers a row appeared when none did would be worse than silence.
+
+  **`conflictColumns` is DERIVED from the def, not passed by the caller.** That
+  is the point: a call site that has to restate its own index's column list has
+  merely moved the hand-rolled index knowledge, not removed it. Precedence —
+  explicit `conflictColumns` wins; else `uniqueIndex: '<name>'`; else the def's
+  single `unique: true` index; else **throw**, naming the model and every unique
+  index found. It never falls through to `undefined`. Array/string index
+  shorthands cannot carry a `unique` flag, so the `isDeleted` index schema-sync
+  injects into every table can never pollute the derivation.
+
+  🔴 **A NOTE FOR WHOEVER TOUCHES THE DIALECTS NEXT, because the codebase
+  currently says otherwise.** `dbh.createIgnore`'s own docblock describes
+  `conflictColumns` as *"Required by SQLite/Postgres; ignored by MySQL"*.
+  Measured at this commit, that is **false for this method on all three
+  dialects**: `MySQLDialect.js:285`, `SQLiteDialect.js:266` and
+  `PostgresDialect.js:300` each accept the parameter and each carry an explicit
+  `eslint-disable no-unused-vars` over it; SQLite and Postgres emit an
+  *unconstrained* `ON CONFLICT DO NOTHING`. The claim IS true of the sibling
+  `buildUpsertSql`, which genuinely requires it (`SQLiteDialect.js:290` throws
+  without it). Consequence: **a wrong conflict target is inert today and no
+  insert on any dialect can fail on it**, so it is pinned by direct unit tests on
+  `resolveConflictColumns` plus a spy proving the resolved value reaches the
+  connection layer — not by an end-to-end insert, which is structurally
+  incapable of catching it. It is resolved and passed anyway because a future
+  targeted-conflict or `RETURNING *` optimization would start reading it.
+
+  **Both the column resolver AND the unique predicate are now shared**
+  (`lib/resolveIndexColumns.js`). The first cut shared only the columns and left
+  `obj.js` testing `spec.unique === true` while `sync-to-db.js` tested
+  `!!indexSpec.unique` — so a def spelled `unique: 1` got a REAL unique index in
+  DDL and was invisible to the deriver, which then threw *"declares no
+  unique:true index"* on a model whose constraint plainly existed. That is the
+  exact drift class the extraction was sold as preventing, one line over; caught
+  in review, pinned by a test, and truthy wins because the DDL emitter is what
+  decides what physically exists.
+
+  `resolveIndexColumns` moved to `lib/resolveIndexColumns.js` so `sync-to-db`
+  (which emits the DDL) and `obj.js` (which derives the conflict target) read
+  one definition. Two copies could disagree about which key names count as an
+  index's column list, and the deriver would then target an index that was never
+  created.
+
+  Typed on all three surfaces — `index.d.ts` (the model static) and
+  `lib/generate-types.js` (the per-model `.d.ts` emitter, verified by reading the
+  emitted output with positive and negative controls). Missing the emitter would
+  leave this library green while every TypeScript consumer failed to compile.
+
+  Tests: `test/obj.idempotent-insert.test.js`, 17 cases over SQLite, including a
+  **red control** (two concurrent `create()` of one unique pair — at least one
+  must throw, else the constraint is absent and the green arm proves nothing)
+  beside the green arm (two concurrent `createIgnore()` — zero throws, exactly
+  one insert, exactly one physical row). Both arms hit the same table through the
+  same connection in the same file. Verified discriminating by mutation: routing
+  `createIgnore` to `dbh.create` turns the green arm red, and dropping
+  `conflictColumns` from the args turns the spy arm red — and *only* the spy arm.
 
 - **A table's ADD COLUMNs batch into ONE `ALTER` (2.8.0, BDL-3681).** When a single
   schema-sync run added N columns to the same table, `lib/sync-to-db.js` pushed N

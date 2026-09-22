@@ -808,6 +808,29 @@ export declare class DatabaseObject {
 		...extraArgs: any[]
 	): Promise<InstanceType<T>>;
 
+	/**
+	 * Atomic at-most-once insert (`INSERT ... ON CONFLICT DO NOTHING` and
+	 * dialect equivalents). Resolves to the created instance, or `null` when a
+	 * UNIQUE/PK conflict caused the insert to be SKIPPED. The `| null` is the
+	 * whole point of the return type: it forces the caller to decide what to
+	 * do about the occupant, which `findOrCreate` hides behind a race.
+	 *
+	 * `conflictColumns` is derived from the def's single `unique: true` index
+	 * when omitted; pass `uniqueIndex` to choose among several, or
+	 * `conflictColumns` to override entirely. An ambiguous or absent target
+	 * throws rather than silently resolving to `undefined`.
+	 */
+	static createIgnore<T extends typeof DatabaseObject>(
+		this: T,
+		data: AnyRecord,
+		options?: TxOptions & {
+			conflictColumns?: string[];
+			uniqueIndex?: string;
+			allowBlankIdOnCreate?: boolean;
+			silenceErrors?: boolean;
+		},
+	): Promise<InstanceType<T> | null>;
+
 	static inflate<T extends typeof DatabaseObject>(
 		this: T,
 		data: AnyRecord,
