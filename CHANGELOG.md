@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`t.datetime.precision(n)`** (or `{ precision: n }`, 0-6): `DATETIME(n)` on
+  MySQL/MariaDB, written with up to `n` digits of fractional seconds. Nothing
+  changes on Postgres (`TIMESTAMPTZ` keeps microseconds).
+- **`t.string.exact()`** (or `{ exact: true }`): case- and accent-exact
+  comparison, `COLLATE utf8mb4_bin` on MySQL/MariaDB. Nothing changes on
+  Postgres or SQLite (already exact). For emails, tokens and identifiers.
+- **`timezone: 'utc'`** (opt-in, MySQL/MariaDB): `SET time_zone = '+00:00'` on
+  every new connection, so `NOW()` agrees with the UTC times yass writes.
+  **Unset (the default) changes nothing.**
 - **`YASS_DEBUG`: one switch for debug logging.** A comma-separated list of
   areas (`cache`, `path-resolver`, `model-index`, `definition-index`, `finder`)
   or `*`. `DEBUG_MODEL_CACHE_HITS=true`, `YASS_DEBUG_PATH_RESOLVER`,
@@ -66,6 +75,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Syncing the same converted schema twice turned a `t.stringKey` id into
+  `int AUTO_INCREMENT` on MySQL** (Postgres failed the cast). `syncSchemaToDb`
+  wrote into the schema it was given; it now works on copies.
+- Postgres and SQLite schema sync ignores a raw `collation` field prop, which
+  made every re-sync `ALTER` the column.
+- The link-collation deferral applies only to `char(36)` columns, so a field
+  that opts into `exact` is changed rather than silently deferred.
 - **Models made straight from `loadDefinition()` shared one instance-cache
   bucket** (all are named `ModelClass`), so they could return each other's
   instances for the same id. The bucket is now `<class name>:<table>`.

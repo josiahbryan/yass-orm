@@ -199,6 +199,26 @@ describe('#Link Column Collation (opt-in source fix)', () => {
 			).to.equal(false);
 		});
 
+		it('defers only char(36) columns when the column type is given', () => {
+			// An `exact` string (`t.string.exact()`) wants utf8mb4_bin too, but it
+			// is not a link column: its change is deliberate and must be applied.
+			config.migrateLinkCollation = undefined;
+			const diff = {
+				key: 'collation',
+				dbValue: 'utf8mb4_0900_ai_ci',
+				schemaValue: 'utf8mb4_bin',
+			};
+			expect(
+				shouldDeferCollationOnlyChange({ ...diff, columnType: 'char(36)' }),
+			).to.equal(true);
+			expect(
+				shouldDeferCollationOnlyChange({ ...diff, columnType: 'varchar(255)' }),
+			).to.equal(false);
+			expect(
+				shouldDeferCollationOnlyChange({ ...diff, columnType: 'longtext' }),
+			).to.equal(false);
+		});
+
 		it('never defers an unrelated collation change (not the known pattern)', () => {
 			// e.g. someone deliberately moving bin -> ci, or ci -> a different ci
 			expect(

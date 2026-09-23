@@ -591,6 +591,68 @@ and set `stringLinkedIds: true` in your config so link columns hold those ids.
 
 ---
 
+## Time zones on MySQL/MariaDB (`timezone: 'utc'`)
+
+**If you compare times in SQL (`NOW()`, `CURRENT_TIMESTAMP`, `DATE_SUB(NOW(), ...)`)
+on MySQL or MariaDB, set `timezone: 'utc'`.** It is off by default.
+
+MySQL `DATETIME` has no time zone. yass-orm's convention is UTC: it writes every
+`Date` as a UTC wall clock, and the driver reads them back as UTC, whatever the
+process time zone. The server's clock functions, though, use the *session* time
+zone, which defaults to the server's own. On a server in `America/Chicago`, `NOW()`
+is five or six hours behind what yass writes, so raw SQL like
+`WHERE expiresAt > NOW()` treats a row that expired hours ago as live.
+
+```javascript
+// .yass-orm.js
+module.exports = {
+	shared: {
+		timezone: 'utc',
+	},
+};
+```
+
+With `timezone: 'utc'`, every new connection (primary and read-replica pools, and
+schema-sync) runs `SET time_zone = '+00:00'` first, so `NOW()` agrees with what yass
+writes. What yass reads and writes does not change.
+
+- **Off by default, and nothing changes when unset.** Turning it on changes what
+  the server's clock functions return, and what `TIMESTAMP` columns (not
+  `DATETIME`) show, for every query on those connections. Check the raw SQL that
+  uses them before you turn it on.
+- Only `'utc'` is accepted (any case); any other value throws when the pool is
+  made. It cannot be combined with `disableTimezone`.
+- It also turns off the pool's `resetAfterUse`. On MariaDB 10.2.22+/10.3.13+ the
+  driver otherwise resets each connection's session on release, which would put
+  the server's zone back. A released connection is rolled back instead, as it
+  always is on MySQL.
+- MySQL/MariaDB only. Postgres `TIMESTAMPTZ` columns and `now()` are absolute
+  instants already; other dialects ignore it.
+- A different client on the same tables (say, a `mysql2` pool used by an auth
+  library) needs the same two settings: its pool reading and writing UTC
+  (`timezone: 'Z'` in mysql2) and the session zone set to `'+00:00'` on each new
+  connection.
+
+## Portable field options: `precision` and `exact`
+
+Two field options that mean the same thing on every dialect (see
+FluentSchemaAPI.md for the full API):
+
+| Option | Use it for | MySQL/MariaDB | Postgres, SQLite |
+| --- | --- | --- | --- |
+| `t.datetime.precision(3)` or `t.datetime({ precision: 3 })` | times that need milliseconds (expiries, ordering) | `DATETIME(3)`; yass writes the milliseconds | nothing to do: `TIMESTAMPTZ` keeps microseconds |
+| `t.string.exact()` or `t.string({ exact: true })` | emails, phone numbers, tokens, identifiers | `COLLATE utf8mb4_bin` | nothing to do: comparison is already exact |
+
+Without `exact`, a MySQL 8 string column compares with `utf8mb4_0900_ai_ci`, which
+ignores case and accents: `jose@example.com` finds `JOSÉ@example.com`. For an
+account's email, that is an account takeover. Schema sync is idempotent with both
+options (a re-sync applies nothing), and it applies `exact` to an existing column
+(a table rebuild on MySQL).
+
+A raw `collation` field prop still works on MySQL/MariaDB. Postgres and SQLite now
+ignore it in schema sync too (they already left it out of their DDL, but it made
+every re-sync re-issue an `ALTER`).
+
 ## Connection pool sizing
 
 `yass-orm` keeps ONE pool per `(dialect, user, host, database, port)` key, shared
@@ -684,6 +746,16 @@ The older flags still work as aliases: `DEBUG_MODEL_CACHE_HITS=true` (`cache`),
 
 ## Recent changes
 
+---
+- 2026-09-23 (unreleased)
+  - (fix) **Syncing the same converted schema twice turned a `t.stringKey` id into `int AUTO_INCREMENT` on MySQL** (on Postgres the second sync failed trying to cast it to INTEGER). `syncSchemaToDb` wrote the dialect's primary-key attrs into the schema it was given, so the second time round the id no longer looked like a key of its own, and got the default integer key. It also added the default `isDeleted` index to the caller's `options.indexes`, and appended an `id` field to a schema that had none. It now works on copies and leaves its argument alone. Found by the Tessera Better Auth spike.
+  - (feat) **`t.datetime.precision(n)`** (or `t.datetime({ precision: n })`), n from 0 to 6: `DATETIME(n)` on MySQL/MariaDB, and yass writes up to `n` digits of fractional seconds to it (plain `DATETIME` columns still get whole seconds). Postgres `TIMESTAMPTZ` already keeps microseconds, so there it changes nothing. See *Portable field options*.
+  - (feat, **security**) **`t.string.exact()`** (or `t.string({ exact: true })`): case- and accent-exact comparison. `COLLATE utf8mb4_bin` on MySQL/MariaDB, whose default collation matches `jose@` to `JOSÉ@`; nothing on Postgres or SQLite, whose default comparison is already exact. Use it for emails, phones, tokens and identifiers.
+  - (fix) Schema sync on Postgres and SQLite ignores a raw `collation` field prop (and the one `linkColumnCollation` adds). Their DDL never emitted it and their introspection never reports one, so a field carrying it was re-`ALTER`ed on every sync.
+  - (fix) The link-collation deferral (`[link-collation] Deferring collation change ...`) only applies to `char(36)` columns, the link columns it was written for. It also caught any other column moving to `utf8mb4_bin`, such as a field that opts into `exact`, and left it accent-insensitive with a misleading message. Nothing changes for `char(36)` columns.
+  - (feat) **`timezone: 'utc'`, an opt-in connection option for MySQL/MariaDB.** It runs `SET time_zone = '+00:00'` on every new connection (primary, read replicas, schema-sync), so `NOW()` and friends agree with the UTC times yass writes. It also turns off the pool's `resetAfterUse`, since on newer MariaDB servers that resets the session (time zone included) on every release. **Off by default; nothing changes when it is unset.** Any other value throws, and so does combining it with `disableTimezone`. See *Time zones on MySQL/MariaDB*.
+  - (chore) `lib/dbh.js` no longer puts the mariadb `timezone`/`skipSetTimezone` options into the config it passes the dialect: `MySQLDialect` has always built its own and ignored them. No change in what reaches the driver.
+  - (test) `test/schemaSync.doubleSync.test.js` and `test/schemaSync.fieldOptions.test.js` (live, on MySQL and in `npm run test:postgres`: column shapes, zero-DDL re-sync, milliseconds round trip, look-alike emails, an existing column adopting `exact`), `test/dbh.timezone-utc.test.js` (live MySQL, in a child process running in `America/Chicago`: session zones, `NOW()` skew, round trip, an expired and a live row compared with `NOW()`, with and without the option), `test/fieldOptions.unit.test.js` and `test/MySQLDialect.createPool-timezone.test.js`; each verified red first. `test/obj.cache-scope.test.js`, `test/obj.transaction.test.js` and one `test/test.js` query no longer hard-code the `test` schema, so the suite runs against any configured schema.
 ---
 - 2026-09-22 (unreleased)
   - (fix) **Postgres: `uuidLinkedIds` link columns could not join to the rows they link to.** `t.linked()` columns were CHAR(36) while `t.uuidKey` keys are native UUID, and Postgres has no `uuid = character` operator, so `JOIN parent p ON p.id = c.parent` failed with *operator does not exist*. Link columns are now created as UUID on Postgres. Existing CHAR(36) link columns are left alone (schema-sync already treats `character(36)` and `char(36)` as equal, so no ALTER is emitted); an ALTER to UUID, when one happens, casts explicitly and turns blank strings into NULL.

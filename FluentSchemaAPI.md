@@ -162,6 +162,24 @@ email: z.string().email(),
 website: z.string().url(),
 ```
 
+### `.exact()`
+
+Compare the column case- and accent-exactly. Use it for emails, phone numbers,
+tokens and other identifiers:
+
+```javascript
+email: t.string.exact()
+token: t.string({ exact: true })  // same thing
+```
+
+On MySQL/MariaDB the column gets `COLLATE utf8mb4_bin`. Without it a string column
+uses the server default (`utf8mb4_0900_ai_ci` on MySQL 8), which ignores case *and
+accents*: `jose@example.com` finds `JOSÉ@example.com`, and a unique index refuses
+`straße` next to `strasse`. Postgres and SQLite already compare strings exactly, so
+there it changes nothing. It cannot be combined with a different explicit
+`collation`. Schema sync applies it to an existing column too (a table rebuild on
+MySQL), and a re-sync applies nothing.
+
 ## Number Methods
 
 These methods are available on number types (`t.int`, `t.float`, `t.real`, `t.number`):
@@ -233,7 +251,17 @@ scheduledAt: t.datetime({ defaultValue: 'CURRENT_TIMESTAMP' })  // With options
 
 // With chaining:
 publishedAt: t.datetime.description('When the post was published')
+
+// Keep milliseconds:
+expiresAt: t.datetime.precision(3)
+seenAt: t.datetime({ precision: 3 })  // same thing
 ```
+
+`.precision(n)` keeps `n` digits of fractional seconds (a whole number, 0-6). On
+MySQL/MariaDB the column is `DATETIME(n)` and yass writes up to `n` digits (a plain
+`DATETIME` gets whole seconds). Postgres `TIMESTAMPTZ` always keeps microseconds,
+so there it changes nothing. Raw `pquery` parameters are not affected: a `Date`
+passed straight to SQL is still sent as whole seconds on MySQL.
 
 ### `t.enum([...])`
 
