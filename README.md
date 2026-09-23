@@ -744,8 +744,81 @@ The older flags still work as aliases: `DEBUG_MODEL_CACHE_HITS=true` (`cache`),
 `YASS_DEBUG_PATH_RESOLVER` (`path-resolver`), `YASS_DEBUG_MODEL_INDEX`
 (`model-index`) and `YASS_DEBUG_DEFINITION_INDEX` (`definition-index`).
 
+## Linking models (`t.linked`)
+
+`t.linked(target)` takes one of three kinds of target, and dispatches on its
+type, so a link written before these existed resolves exactly as it did:
+
+| Target | Example | Resolved |
+| --- | --- | --- |
+| A lazy reference (the new default) | `t.linked(() => User)` | by calling it, when the link is first read |
+| A registered name | `t.linked('user')` | through the model registry, if `'user'` is registered |
+| Anything else | `t.linked('user')`, `t.linked('../models/user')` | by path, as always |
+
+**Lazy references.** A real import, so types flow through, go-to-definition
+and rename work, it works across packages, and a bundler (Bun) sees an
+ordinary import: no path resolution or filesystem check at run time. The
+function runs when the link is first read, not when the definition loads, so
+two models may link to each other. In ES modules and TypeScript, `() => User`
+is enough (imports are live bindings). In CommonJS a cycle hands one side a
+half-built `module.exports`, so require inside the function:
+`t.linked(() => require('./user'))`. It may also return the module
+(`{ default: User }`) or a promise (`() => import('./user.js')`), or you can
+pass the class itself.
+
+**The model registry.** For links a real import shouldn't make (an optional
+plugin, or packages that mustn't depend on each other):
+
+```js
+const { registerModels } = require('yass-orm');
+registerModels({ user: User, org: Org }); // returns a function that unregisters them
+```
+
+A registered name wins over a model file of the same name. A name that isn't
+registered falls through to path resolution, unchanged. The registry is on
+`globalThis.__YASS_ORM_MODEL_REGISTRY__`, so two copies of yass share it.
+Registering a different model under a taken name throws. In TypeScript, list
+your models by declaration merging, and the names autocomplete and
+`getRegisteredModel('user')` is typed:
+
+```ts
+declare module 'yass-orm' {
+	interface ModelRegistry {
+		user: typeof User;
+	}
+}
+```
+
+**The link check.** A broken link otherwise fails at its first read, which may
+be in production, long after deploy. `checkLinks()` resolves every link of the
+registered models (or of `{ models: [...] }`) at once and reports every one
+that doesn't resolve:
+
+```js
+const { ok, checked, problems } = await checkLinks();
+// problems: [{ model, table, field, link, message }, ...]
+await checkLinks({ throwIfBroken: true }); // or: one error listing them all
+```
+
+It is opt-in: call it at boot. A path link resolves as a read would, so its
+model file is imported.
+
 ## Recent changes
 
+---
+- 2026-09-23 (unreleased)
+  - (feat) **Lazy-reference links, the model registry and a startup link check** (step 4 of the modernization plan; see *Linking models*). The design, agreed 2026-09-23:
+    - `t.linked(() => User)`: a lazy reference, the new default. A real import (typed, safe for cycles, bundleable by Bun), called when the link is first read. It may return the module or a promise, or be the class itself. Chained options (`.description(...)`) keep the function. Codegen (`bin/generate-types`) types such a field `unknown`, since it reads the definition, not the model.
+    - `t.linked('user')`: resolved through the model registry when `'user'` is registered there (`registerModel(name, Model)`, `registerModels({ ... })`, `getRegisteredModel(name)`). Types come through a `ModelRegistry` interface in `index.d.ts` that consumers extend by declaration merging.
+    - Anything else falls back to path resolution, unchanged: `withRelativeModelLinks`, the path cache, Rubber's Bun model path index and path resolver.
+    - `checkLinks({ models, throwIfBroken })`: resolves every link of the registered models (or the ones given) and reports every one that doesn't resolve, all at once. Opt-in; Tessera will call it at boot.
+    - **How Rubber keeps working unchanged:** the dispatch is on the argument's type. Rubber's `withRelativeModelLinks` hands `t.linked` absolute path strings, and Rubber registers no names, so every Rubber link takes the path branch, which is the old code, moved.
+  - (types) `index.d.ts`: `ModelRegistry`, `LinkTarget`, `LazyModelReference`, `LinkedModelOf<T>`, `SchemaTypes` (the definition's `t`, with `linked` and `parent` typed), `DefinitionFunction`, and the registry and `checkLinks` functions. `loadDefinition()` now accepts a definition function typed with its `{ types }` argument (it took only `() => any`).
+  - (refactor) **`lib/obj.js` is split** (no behavior change): `lib/model/cache.js` (the instance cache), `lib/model/hydrate.js` (`inflate`, `inflateValues`, `deflateValues`, updating after a write, `jsonify`), `lib/model/resolve-model.js` (links to model classes), `lib/model/definition-loader.js` (`loadDefinition`, the definition cache, `registerDefinition`), `lib/model/change-hooks.js` and `lib/model/registry.js`. `DatabaseObject` keeps every method; the ones that moved are thin delegates that pass `this`, and the modules call back through the class or instance, so a subclass override (Rubber's `get`, `getCachedId(id, span)`, `setCachedId`, `afterChangeHook(txOptions)`, `patch`, `findOrCreate`) sees the same calls in the same order. `lib/obj.js` still exists and exports the same names, plus the four new ones. `lib/obj.js` went from 2,441 to about 1,600 lines.
+  - (refactor) **One module owns every `globalThis` key: `lib/globals.js`.** No other module touches `globalThis`. Same keys, same behavior: yass's own stores (`__YASS_ORM_OBJECT_CACHE__`, `_MODEL_CLASS_CACHE__`, `_MODEL_DEFINITION_CACHE__`, `_PATH_CACHE__`, `_GLOBAL_CHANGE_HOOKS__`, and the new `_MODEL_REGISTRY__`) are adopted if already set, otherwise created, at load; the four a consumer writes (`__YASS_ORM_MODEL_PATH_INDEX__`, `_PATH_RESOLVER__`, `__YASS_DEF_PATH_MAP__`, `__YASS_ORM_DEFINITION_INDEX__`) are read live on every use. `__YASS_DEF_PATH_MAP__` is still read as the literal expression Rubber's Bun `define` replaces.
+  - (fix) **`jsonify({ includeLinked: true })` on a row that links to itself never resolved.** Its cycle guard, a pending promise stored on the instance, handed the nested call the outer call's own result, so it waited on itself. The guard is now scoped to the call chain (an `AsyncLocalStorage`): an instance already expanding its links in this chain doesn't expand them again.
+  - (fix) **A `jsonify()` while another was pending on the same instance got that call's result**, whatever options it asked for (the same guard). Concurrent calls are now independent.
+  - (test) `test/obj.link-styles.test.js` (live, on MySQL and in `npm run test:postgres`: a CommonJS require cycle, a self-link, an ES module cycle, a module or promise returned, a bad reference failing at first read, the registry winning over a same-named file and the path back once unregistered, rows loaded through both styles, `checkLinks` reporting all at once), `test/globals.test.js` (no other `lib/` module touches `globalThis`; the keys; adoption by a second copy), `test-d/links.test-d.ts`, and generate-types cases; each verified red first. The two `known bug:` jsonify tests in `test/obj.characterize.links.test.js` are turned on. The characterization suites are otherwise unchanged and green.
 ---
 - 2026-09-23 (unreleased)
   - (fix) **Syncing the same converted schema twice turned a `t.stringKey` id into `int AUTO_INCREMENT` on MySQL** (on Postgres the second sync failed trying to cast it to INTEGER). `syncSchemaToDb` wrote the dialect's primary-key attrs into the schema it was given, so the second time round the id no longer looked like a key of its own, and got the default integer key. It also added the default `isDeleted` index to the caller's `options.indexes`, and appended an `id` field to a schema that had none. It now works on copies and leaves its argument alone. Found by the Tessera Better Auth spike.

@@ -307,10 +307,10 @@ describe('#characterize links (t.linked)', function linksSuite() {
 				).to.deep.equal({ id: 42, custom: true });
 			});
 
-			// NEW BUG (found writing these tests): the cycle guard hands a nested
-			// call the outer call's own pending promise, so a row whose link
-			// reaches back to itself waits on itself forever. Unskip once fixed.
-			it.skip('known bug: includeLinked on a row that links to itself never resolves', async () => {
+			// Was a known bug (found in step 3, fixed in step 4): the cycle guard
+			// handed a nested call the outer call's own pending promise, so a row
+			// whose link reached back to itself waited on itself forever.
+			it('known bug: includeLinked on a row that links to itself never resolves', async () => {
 				const { alice } = await seed();
 				await alice.patch({ bestFriend: alice.id });
 
@@ -322,11 +322,11 @@ describe('#characterize links (t.linked)', function linksSuite() {
 				expect(json.bestFriend).to.include({ id: alice.id, name: 'Alice' });
 			});
 
-			// NEW BUG (found writing these tests): while an includeLinked call is
-			// pending, any other jsonify() on the same instance returns that call's
-			// result (the same object), whatever options it asked for. Unskip once
-			// fixed.
-			it.skip("known bug: a jsonify() during another gets that call's result, not its own", async () => {
+			// Was a known bug (found in step 3, fixed in step 4): while an
+			// includeLinked call was pending, any other jsonify() on the same
+			// instance returned that call's result (the same object), whatever
+			// options it asked for.
+			it("known bug: a jsonify() during another gets that call's result, not its own", async () => {
 				const { bob, pet } = await seed();
 				const [linked, plain] = await Promise.all([
 					pet.jsonify({ includeLinked: true }),

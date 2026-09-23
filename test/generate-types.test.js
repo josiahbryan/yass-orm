@@ -198,3 +198,27 @@ describe('#generate-types null-in-enum default marker', () => {
 		});
 	});
 });
+
+describe('#generate-types lazy-reference links (t.linked(() => Model))', () => {
+	const fixturePath = path.join(
+		__dirname,
+		'fixtures',
+		'link-styles',
+		'defs',
+		'lazy-link-def.js',
+	);
+
+	it('types the field `unknown` in the .d.ts, with no import', () => {
+		const generated = generateTypesContent(fixturePath);
+		expect(generated).to.match(/\bauthor: unknown/);
+		expect(generated).to.include('lazy reference');
+		expect(generated).to.not.include('author.js');
+		expect(generated).to.not.match(/import type \w+ from '\.\.?\//);
+	});
+
+	it('mapFieldToTsType() and mapFieldToZodSchema() take a function link', () => {
+		const field = { field: 'author', type: 'int', linkedModel: () => null };
+		expect(mapFieldToTsType(field)).to.equal('unknown');
+		expect(mapFieldToZodSchema(field)).to.match(/^z\.string\(\)/);
+	});
+});

@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Lazy-reference links: `t.linked(() => Model)`**, the new default link
+  style. A real import (typed, safe for import cycles, bundleable by Bun),
+  called when the link is first read. It may return the module or a promise
+  (`() => import('./user.js')`), or be the class itself.
+- **The model registry: `registerModel(name, Model)`, `registerModels({ ... })`,
+  `getRegisteredModel(name)`.** `t.linked('name')` resolves through it when the
+  name is registered; any other string resolves by path, unchanged. Typed by a
+  `ModelRegistry` interface consumers extend by declaration merging. On
+  `globalThis.__YASS_ORM_MODEL_REGISTRY__`, shared by two copies of yass.
+- **`checkLinks({ models, throwIfBroken })`**: resolves every link of the
+  registered models (or those given) and reports every broken one at once.
+  Opt-in; call it at boot.
+- (types) `ModelRegistry`, `LinkTarget`, `LazyModelReference`,
+  `LinkedModelOf<T>`, `SchemaTypes`, `DefinitionFunction`, `LinkCheckReport`.
+  `loadDefinition()` accepts a definition function typed with its `{ types }`
+  argument.
+
 - **`t.datetime.precision(n)`** (or `{ precision: n }`, 0-6): `DATETIME(n)` on
   MySQL/MariaDB, written with up to `n` digits of fractional seconds. Nothing
   changes on Postgres (`TIMESTAMPTZ` keeps microseconds).
@@ -41,6 +58,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Recent changes).
 
 ### Changed
+
+- **`lib/obj.js` is split into `lib/model/*`** (cache, hydrate,
+  resolve-model, definition-loader, change-hooks, registry), with no behavior
+  change: `DatabaseObject` keeps every method as a thin delegate that passes
+  `this`, so subclass overrides (Rubber's) see the same calls in the same
+  order, and `lib/obj.js` exports the same names. **`lib/globals.js` owns every
+  `globalThis` key**: same names, same adopt-if-set behavior, the consumer-set
+  keys read live, `globalThis.__YASS_DEF_PATH_MAP__` still spelled literally for
+  Bun `define`. Rubber's links are path strings from `withRelativeModelLinks`
+  and it registers no names, so they take the old path code, moved unchanged.
 
 - **The config is loaded on first use, not at `require`.** `lib/config.js`
   exports a proxy that finds and loads the config, prints its notices, and
@@ -75,6 +102,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`jsonify({ includeLinked: true })` on a row that links to itself never
+  resolved**, and **a `jsonify()` while another was pending on the same
+  instance got that call's result.** The cycle guard was a pending promise on
+  the instance; it is now scoped to the call chain (`AsyncLocalStorage`).
 - **Syncing the same converted schema twice turned a `t.stringKey` id into
   `int AUTO_INCREMENT` on MySQL** (Postgres failed the cast). `syncSchemaToDb`
   wrote into the schema it was given; it now works on copies.

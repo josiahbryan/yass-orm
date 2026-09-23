@@ -884,10 +884,167 @@ export declare class DatabaseObject {
 // UTILITY FUNCTIONS AND EXPORTS
 // ============================================================================
 
+// ============================================================================
+// LINKS AND THE MODEL REGISTRY
+// ============================================================================
+
+/** A model class: DatabaseObject or a subclass (what loadDefinition returns). */
+export type ModelClass = typeof DatabaseObject;
+
+/**
+ * The names `t.linked('name')` resolves through the model registry. Empty
+ * here; a consumer lists its models by declaration merging, and then those
+ * names autocomplete and `getRegisteredModel(name)` returns the right type:
+ *
+ * ```ts
+ * declare module 'yass-orm' {
+ *   interface ModelRegistry { user: typeof User }
+ * }
+ * registerModels({ user: User });
+ * ```
+ */
+export interface ModelRegistry {}
+
+/** A name listed in {@link ModelRegistry}. */
+export type RegisteredModelName = Extract<keyof ModelRegistry, string>;
+
+/**
+ * A lazy reference to a model: `() => User`. Called when the link is first
+ * resolved, not when the definition loads, so models may import each other.
+ * May return the module (`{ default: User }`) or a promise of either, so
+ * `() => import('./user.js')` works too.
+ */
+export type LazyModelReference<M extends ModelClass = ModelClass> = () =>
+	| M
+	| { default: M }
+	| Promise<M | { default: M }>;
+
+/**
+ * What `t.linked(x)` takes: a lazy reference (or the model class itself), a
+ * registered name, or a path string (resolved as it always has been).
+ */
+export type LinkTarget =
+	| ModelClass
+	| LazyModelReference
+	| RegisteredModelName
+	// Any other string: a path. `string & {}` keeps registered names autocompleting.
+	| (string & {});
+
+type UnwrapModelModule<R> = R extends ModelClass
+	? R
+	: R extends { default: infer D }
+	? D extends ModelClass
+		? D
+		: never
+	: never;
+
+/** The model class a link target names. */
+export type LinkedModelOf<T> = T extends ModelClass
+	? T
+	: T extends () => infer R
+	? UnwrapModelModule<Awaited<R>>
+	: T extends RegisteredModelName
+	? ModelRegistry[T]
+	: ModelClass;
+
+/** `t.linked(...)`'s field type. `__linkedModel` only carries the type. */
+export interface LinkedFieldType<M = ModelClass> {
+	(options?: AnyRecord): LinkedFieldType<M>;
+	readonly type: string;
+	readonly linkedModel: LinkTarget;
+	/** Type-level only: the linked model. Never set at runtime. */
+	readonly __linkedModel?: M;
+	description(text: string): LinkedFieldType<M>;
+	[key: string]: any;
+}
+
+/** `t.linked`'s options. Only `array` does anything today. */
+export type LinkOptions = {
+	array?: boolean;
+	inverse?: string | null;
+	[key: string]: unknown;
+};
+
+/**
+ * The `types` (`t`) a definition function receives. `linked` and `parent`
+ * are typed; the other field types are loose for now.
+ */
+export interface SchemaTypes {
+	linked<T extends LinkTarget>(
+		target: T,
+		options?: LinkOptions,
+	): LinkedFieldType<LinkedModelOf<T>>;
+	parent<T extends LinkTarget>(target: T): LinkedFieldType<LinkedModelOf<T>>;
+	[type: string]: any;
+}
+
+/** A definition: `({ types: t }) => ({ table, schema: { ... } })`. */
+export type DefinitionFunction = (context: {
+	types: SchemaTypes;
+	[key: string]: any;
+}) => AnyRecord;
+
+/** The model a registry name takes: its declared type, or any model. */
+type ModelForName<K> = K extends RegisteredModelName
+	? ModelRegistry[K]
+	: ModelClass;
+
+/**
+ * Registers a model under `name`, for `t.linked(name)`. The same model again
+ * is a no-op; a different model under a taken name throws.
+ * @returns A function that unregisters it
+ */
+export declare function registerModel<K extends string>(
+	name: K,
+	model: ModelForName<K>,
+): () => void;
+
+/**
+ * Registers each model under its key (checking them all first).
+ * @returns A function that unregisters them
+ */
+export declare function registerModels<
+	M extends { [K in keyof M]: ModelForName<K> },
+>(models: M): () => void;
+
+/** The model registered under `name`, or undefined. */
+export declare function getRegisteredModel<K extends string>(
+	name: K,
+): ModelForName<K> | undefined;
+
+/** One link checkLinks() couldn't resolve. */
+export type LinkProblem = {
+	/** The linking model's class name */
+	model: string;
+	table: string;
+	field: string;
+	/** The link as written: a name, a path, or a reference's source */
+	link: string;
+	message: string;
+};
+
+export type LinkCheckReport = {
+	ok: boolean;
+	/** How many links were resolved */
+	checked: number;
+	problems: LinkProblem[];
+};
+
+/**
+ * Resolves every link of the given models (default: the registered ones) and
+ * reports every one that doesn't resolve, at once. Opt-in: call it at boot.
+ * With `throwIfBroken`, rejects with one error listing them all (its
+ * `problems` property holds the list).
+ */
+export declare function checkLinks(options?: {
+	models?: ModelClass[] | Record<string, ModelClass>;
+	throwIfBroken?: boolean;
+}): Promise<LinkCheckReport>;
+
 export declare function convertDefinition(definition: any): SchemaDefinition;
 
 export declare function loadDefinition(
-	definitionFile: string | (() => any),
+	definitionFile: string | DefinitionFunction | (() => any),
 ): typeof DatabaseObject;
 
 /**
