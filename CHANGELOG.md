@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (breaking, major: 3.0)
+
+- **`pg`, `better-sqlite3` and `node-sql-parser` are optional peer
+  dependencies** (`peerDependenciesMeta` optional), no longer installed with
+  yass-orm. Install the ones your dialects use: `pg` and `node-sql-parser` for
+  Postgres, `better-sqlite3` and `node-sql-parser` for SQLite. MySQL/MariaDB
+  (`mariadb`) needs nothing new. Peers rather than `optionalDependencies`,
+  which npm and pnpm still install by default. See README *Installing*.
+- Each is loaded on first use; a missing one throws an error with
+  `code: 'YASS_MISSING_DEPENDENCY'` naming the package, what needed it and the
+  install command (`requireOptional` in `lib/optional-dependency.js`).
+  Requiring `yass-orm` no longer loads `node-sql-parser`.
+
+### Fixed
+
+- Postgres without its SQL transformer no longer passes SQL through
+  untransformed: `transformSql` throws the missing-package error.
+
+### Not changed
+
+- `mariadb` stays at 2.5.5: 3.5.4 fails 81 of the MySQL suite's tests
+  (private class fields vs `dbh`'s bolted-on methods, DECIMAL as strings and
+  BIGINT as `BigInt`, `timezone` converting dates). It needs its own step.
+
 ### Added
 
 - **`defineModel({ table, prefix, schema: (t) => ({ ... }) })`**: a model

@@ -4,6 +4,30 @@ Yet Another Super Simple ORM
 
 Why? Mainly for my personal use in a variety of projects.
 
+## Installing
+
+```sh
+npm install yass-orm                                  # MySQL/MariaDB (the default dialect)
+npm install yass-orm pg node-sql-parser               # PostgreSQL
+npm install yass-orm better-sqlite3 node-sql-parser   # SQLite
+```
+
+Since 3.0, only the MySQL/MariaDB driver (`mariadb`) is installed with yass-orm. `pg`, `better-sqlite3` and
+`node-sql-parser` are optional peer dependencies: add the ones your dialects use to your own `dependencies`. Each is
+loaded the first time something needs it, so a MySQL-only project never loads them, and a missing one fails with an
+error (`err.code === 'YASS_MISSING_DEPENDENCY'`) that names the package and how to install it:
+
+```text
+yass-orm: the PostgreSQL dialect needs the "pg" package, which isn't installed. Add it to your own dependencies: npm install pg@"^8.23.0"
+```
+
+`node-sql-parser` is what rewrites your SQL for Postgres and SQLite, and what compares partial-index predicates in
+schema sync (only Postgres and SQLite have partial indexes).
+
+**Upgrading from 2.x:** if you use the Postgres dialect, add `pg` and `node-sql-parser`; for SQLite, `better-sqlite3`
+and `node-sql-parser`. Nothing else changes: same API, same SQL, same `mariadb` 2 driver. If you import
+`node-sql-parser`, `pg` or `better-sqlite3` yourself and relied on yass-orm to install them, add them too.
+
 ## Declared triggers (schema-defined `triggers` block)
 
 Schema-sync can reconcile database triggers the same way it reconciles
@@ -375,7 +399,7 @@ module.exports = {
 };
 ```
 
-`better-sqlite3` is included as a direct dependency of `yass-orm`, so no separate install is required in consumer projects.
+Install `better-sqlite3` and `node-sql-parser` next to `yass-orm` (`npm install better-sqlite3 node-sql-parser`); since 3.0 they are optional peer dependencies. See *Installing*.
 Note: `better-sqlite3` is a native module and may require platform build tooling in some environments.
 
 ### What's Automatically Translated
@@ -479,7 +503,7 @@ module.exports = {
 };
 ```
 
-`pg` is included as a direct dependency of `yass-orm`, so no separate install is required in consumer projects.
+Install `pg` and `node-sql-parser` next to `yass-orm` (`npm install pg node-sql-parser`); since 3.0 they are optional peer dependencies. See *Installing*.
 
 ### What's Automatically Translated
 
@@ -963,6 +987,12 @@ await OrgModel.create({ name: 'Acme', owner: user }); // typed fields; a link ta
 ## Recent changes
 
 ---
+- 2026-09-23 (unreleased, **major: 3.0**)
+  - (**breaking**, install) **`pg`, `better-sqlite3` and `node-sql-parser` are optional peer dependencies** (step 8 of the modernization plan). They were regular dependencies, so every consumer installed all three (`node-sql-parser` alone is about 88 MB, and `better-sqlite3` is a native build) whatever dialect it used. Now `npm install yass-orm` installs one database driver, `mariadb` (the default dialect's); a Postgres project adds `pg` and `node-sql-parser`, a SQLite one `better-sqlite3` and `node-sql-parser`. See *Installing*. Peers (with `peerDependenciesMeta` optional) rather than `optionalDependencies`, which npm and pnpm still install by default, so they would save nothing; a peer also lets the consumer pick the version within the range. They stay in `devDependencies`, so this repo's own suite covers every dialect.
+  - (feat) **Each is loaded on first use, and a missing one is named.** New `lib/optional-dependency.js` (`requireOptional(name, { feature })`) throws an error with `code: 'YASS_MISSING_DEPENDENCY'`, the package, what needed it and the install command with the supported range (the original error is its `cause`). A package that is installed but can't load one of its own imports keeps its original error. `pg` loads when a Postgres pool or connection is made; `better-sqlite3` when a SQLite database is opened; `node-sql-parser` on the first Postgres or SQLite query and the first partial-index predicate schema sync compares. Before, `SQLiteDialect` and schema sync loaded `node-sql-parser` at `require`, so requiring `yass-orm` did too.
+  - (fix) **Postgres without `node-sql-parser` no longer sends your SQL untransformed.** `PostgresDialect.transformSql` swallowed any error loading its transformer and passed the SQL through as is (`:named` parameters, backticks and all), so the failure surfaced later as a confusing SQL error. It now throws the missing-package error.
+  - (not changed) **`mariadb` stays at 2.5.5.** Run against the MySQL suite, `mariadb` 3.5.4 fails 81 of 1,450 tests: 3.x keeps connection state in private class fields, which the methods `dbh` bolts onto the connection can't reach (*Cannot read private member*); DECIMAL columns come back as strings and BIGINT as `BigInt`; its `timezone` option now converts dates (6 hours off in the tests); and several pool-option tests stub 2.x internals. It needs its own step, with Rubber's suite.
+  - (test) `test/optional-deps.test.js` (17 tests): the manifest; `requireOptional`; each dialect with its driver installed; and, in child processes where `test/fixtures/block-modules.js` makes packages unresolvable, requiring `yass-orm` with none of the three (none gets loaded), each missing package named by the dialect or feature that needs it, and on MySQL a schema sync (`bin/schema-sync`) and a model create/read/delete with none of them installed. 10 of the 17 fail on 2.x.
 - 2026-09-23 (unreleased)
   - (feat) **`defineModel`: models whose TypeScript types are inferred from their schema** (step 6 of the modernization plan; see *Defining models*). No codegen for new models: the instance type (every field, nullability, enum unions, object shapes, links as the linked model's instance, a subclass's methods), `create()`'s input, and `Model.zod`'s output all come from the schema. The runtime stays plain JavaScript (no build step; the types are in `index.d.ts`). The class is the one `loadDefinition` makes (`lib/model/definition-loader.js` `createModelClass`, now shared), with its schema built on first read; `lib/model/define-model.js` and `lib/model/zod.js` are new.
   - (feat) **Table renaming at startup: `Model.useTable(name)` and `applyTableNames(models, { tables, tablePrefix })`**, for defined models, whose table names are defaults (Tessera's `auth({ tables })`).
