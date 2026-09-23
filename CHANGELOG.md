@@ -33,6 +33,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The config is loaded on first use, not at `require`.** `lib/config.js`
+  exports a proxy that finds and loads the config, prints its notices, and
+  throws on an unknown env (`Unknown config env for YassORM: <env>`) only when
+  a property is first used. Requiring yass never throws or prints, and
+  `YASS_CONFIG` / `YASS_ENV` / `NODE_ENV` may be set after `require`. Once loaded
+  it is the same object with the same values and keys as before, for both the
+  `config` export and `yass-orm/lib/config.js`. `dbh.js`, `sync-to-db.js` and
+  `def-to-schema.js` read config values when used instead of copying them at
+  load. Note: the user config file (`.yass-orm.js`) is also `require`d on first
+  use, so its top-level side effects (such as the common
+  `process.env.NODE_ENV = 'development'` line) now happen then, not when yass
+  is required.
 - **`finder.js` is quiet by default.** Its per-`find()` diagnostic logs (the
   processed query, the generated SQL with timing, each filter's SQL with its id
   count) print only with `YASS_DEBUG=finder`.

@@ -8,15 +8,12 @@ const { dbh } = require('../lib/dbh');
 // other file in `test/**/*.test.js` — it deliberately does NOT try to force
 // SQLite for just this file via `process.env.YASS_CONFIG`.
 //
-// `lib/config.js` reads `process.env.YASS_CONFIG` at require-time and
-// destructures the resolved values into module-level consts inside
-// `lib/dbh.js` (`configDialect`, `configFilename`, ...) the FIRST time
-// `lib/dbh.js` is required in the process. Under the full multi-file `mocha
-// test/**/*.test.js` glob, some other test file requires `../lib/dbh` before
-// this one is required (mocha requires every matching file up front), so by
-// the time this file's top-level code ran, the dialect was already latched to
-// whatever the first-required file resolved — setting the env var here was a
-// no-op that only ever worked when this file happened to run standalone.
+// `lib/config.js` reads `process.env.YASS_CONFIG` once, on the config's
+// first use in the process, and keeps the result. Under the full multi-file
+// `mocha test/**/*.test.js` glob, other test files use the config long before
+// this one runs, so the dialect is already latched to whatever the first use
+// resolved — setting the env var here is a no-op that only ever worked when
+// this file happened to run standalone.
 // `Model.search()` always resolves its connection through `dbh()` with no
 // per-call override (see obj.js `_runOn` / `retryIfConnectionLost`), so there
 // is no way to hand it a different dialect from inside a single test file in
