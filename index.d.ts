@@ -879,6 +879,19 @@ export declare function loadDefinition(
 ): typeof DatabaseObject;
 
 /**
+ * A 25-char, lowercase base-36 id whose first 9 chars are the creation time, so
+ * ids sort by creation time as plain strings. See lib/objectId.js.
+ */
+export declare function timeOrderedId(now?: number): string;
+
+/**
+ * `<prefix>_<timeOrderedId>`, at most 36 chars. The prefix must be 1-10 lowercase
+ * letters/digits starting with a letter. This is what a def that declares
+ * `objectIdPrefix` gets from generateObjectId().
+ */
+export declare function prefixedId(prefix: string, now?: number): string;
+
+/**
  * Register a definition function for bundled executable support.
  * This enables bundled executables (e.g., bun build --compile) to pre-register
  * definition functions that loadDefinition can use without filesystem access.

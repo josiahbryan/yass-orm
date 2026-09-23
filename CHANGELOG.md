@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`t.stringKey` + `objectIdPrefix`: prefixed, time-ordered string ids**
+  (`chat_0mfq3k2z1...`) on every dialect, `stringLinkedIds` for link columns that
+  hold them, and exported `prefixedId()` / `timeOrderedId()`. VARCHAR(36) on
+  Postgres, CHAR(36) on MySQL/MariaDB, TEXT on SQLite.
+
+### Fixed
+
+- **Postgres: `uuidLinkedIds` link columns are native UUID,** so they join to the
+  `t.uuidKey` rows they link to (was CHAR(36): *operator does not exist: uuid =
+  character*). Existing CHAR(36) link columns are not altered.
+- Postgres keeps sized `varchar(n)` types (was TEXT); type generation types a
+  `t.stringKey` id as `z.string()` and sized varchars as `string`.
+
 ### Fixed
 
 - **Schema-sync column comparator never converged: no-op `ALTER TABLE ... CHANGE

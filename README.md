@@ -539,6 +539,9 @@ const results = await Model.search({ name: 'test' });
 |---------------|-----------------|
 | `t.idKey` | `SERIAL PRIMARY KEY` |
 | `t.uuidKey` | `UUID PRIMARY KEY` |
+| `t.stringKey` | `VARCHAR(36) PRIMARY KEY` |
+| `t.linked()` with `uuidLinkedIds` | `UUID` |
+| `t.linked()` with `stringLinkedIds` | `VARCHAR(36)` |
 | `t.varchar(N)` | `VARCHAR(N)` |
 | `t.text` | `TEXT` |
 | `t.int` | `INTEGER` |
@@ -549,6 +552,35 @@ const results = await Model.search({ name: 'test' });
 | `t.blob` | `BYTEA` |
 | `t.date` | `DATE` |
 | `t.datetime` | `TIMESTAMP` |
+
+### Prefixed string ids (`t.stringKey`)
+
+For ids like `chat_0mfq3k2z1x8c4v7b2n9m5k1j3` (readable in logs and URLs, and a
+wrong-kind id fails visibly), declare a string key and a prefix:
+
+```javascript
+export default ({ types: t }) => ({
+  table: 'chats',
+  objectIdPrefix: 'chat', // 1-10 lowercase letters/digits
+  schema: {
+    id: t.stringKey,
+    owner: t.linked('user'),
+  },
+});
+```
+
+and set `stringLinkedIds: true` in your config so link columns hold those ids.
+
+- **Ids are generated app-side** by `generateObjectId()`: `<prefix>_` plus 9
+  base-36 chars of creation time plus 16 random chars (`prefixedId()` /
+  `timeOrderedId()` are exported). Ids sort by creation time as plain strings, so
+  new rows append to the primary-key index instead of scattering through it. A
+  model can still override `generateObjectId`.
+- **Storage:** VARCHAR(36) on Postgres (whose `t.uuidKey` is a native UUID that
+  rejects such ids), CHAR(36) on MySQL/MariaDB, TEXT on SQLite. Link columns are
+  `varchar(36)` under `stringLinkedIds`.
+- `t.stringKey` is a `t.uuidKey` flagged `stringId`, so create/findOrCreate/upsert
+  and schema-sync treat it exactly like one.
 
 ### PostgreSQL Limitations
 
@@ -632,6 +664,13 @@ See BC-3587 in the CHANGELOG for the shape of the bug that motivated the probe.
 
 ## Recent changes
 
+---
+- 2026-09-22 (unreleased)
+  - (fix) **Postgres: `uuidLinkedIds` link columns could not join to the rows they link to.** `t.linked()` columns were CHAR(36) while `t.uuidKey` keys are native UUID, and Postgres has no `uuid = character` operator, so `JOIN parent p ON p.id = c.parent` failed with *operator does not exist*. Link columns are now created as UUID on Postgres. Existing CHAR(36) link columns are left alone (schema-sync already treats `character(36)` and `char(36)` as equal, so no ALTER is emitted); an ALTER to UUID, when one happens, casts explicitly and turns blank strings into NULL.
+  - (feat) **`t.stringKey` + `objectIdPrefix`: prefixed, time-ordered string ids** (`chat_0mfq3k2z1...`) that work on every dialect, plus `stringLinkedIds` for link columns that hold them. See *Prefixed string ids* under PostgreSQL Support. Models without an `objectIdPrefix` keep their current `generateObjectId`.
+  - (fix) Postgres `mapType` keeps sized `varchar(n)` types instead of falling back to TEXT, and schema-sync treats `character varying(n)` as equal to `varchar(n)`.
+  - (fix) Type generation: a `t.stringKey` id is `z.string()` (not `.uuid()`), and sized varchars type as `string` (they were `unknown`).
+  - (test) `test/postgres.uuidLinks.test.js` and `test/postgres.stringKey.test.js` (live Postgres, in `npm run test:postgres`; each verified red first), `test/stringKey.unit.test.js`, and dialect unit tests.
 ---
 - 2026-09-10 (2.7.0)
   - (feat) **`idleTimeout` is now configurable.** `lib/dbh.js` hardcoded `idleTimeout: 600` into both `poolConfig` and every `roConnConfig`, so a caller's value never reached the driver — measured, `idleTimeout: 999` reached neither pool while `minimumIdle: 3` (positive control) reached both. `dbh.js` now forwards it only when set and holds no literal; `MySQLDialect` and `PostgresDialect` each own the 600s default. **Unchanged for every consumer that does not set it.**
