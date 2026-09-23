@@ -14,8 +14,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hold them, and exported `prefixedId()` / `timeOrderedId()`. VARCHAR(36) on
   Postgres, CHAR(36) on MySQL/MariaDB, TEXT on SQLite.
 
+### Changed
+
+- **Postgres: `t.datetime` is `TIMESTAMPTZ`** for new columns. Existing naive
+  `TIMESTAMP` columns are left as they are (no ALTER, no rewrite).
+
 ### Fixed
 
+- **Postgres datetimes keep milliseconds and no longer depend on the process
+  time zone.** Writes send the full ISO instant (MySQL still gets whole seconds:
+  `DATETIME` without fsp rounds); reads keep the driver's `Date` rather than a
+  lossy `Date#toString` round trip; naive `TIMESTAMP` columns are parsed as UTC per
+  connection (they were parsed as local time, correct only while `TZ` was UTC --
+  9h off under `Asia/Tokyo`).
 - **Postgres: `uuidLinkedIds` link columns are native UUID,** so they join to the
   `t.uuidKey` rows they link to (was CHAR(36): *operator does not exist: uuid =
   character*). Existing CHAR(36) link columns are not altered.

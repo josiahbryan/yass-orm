@@ -551,7 +551,7 @@ const results = await Model.search({ name: 'test' });
 | `t.json` | `JSONB` |
 | `t.blob` | `BYTEA` |
 | `t.date` | `DATE` |
-| `t.datetime` | `TIMESTAMP` |
+| `t.datetime` | `TIMESTAMPTZ` (was `TIMESTAMP`; existing columns are left as they are) |
 
 ### Prefixed string ids (`t.stringKey`)
 
@@ -671,6 +671,12 @@ See BC-3587 in the CHANGELOG for the shape of the bug that motivated the probe.
   - (fix) Postgres `mapType` keeps sized `varchar(n)` types instead of falling back to TEXT, and schema-sync treats `character varying(n)` as equal to `varchar(n)`.
   - (fix) Type generation: a `t.stringKey` id is `z.string()` (not `.uuid()`), and sized varchars type as `string` (they were `unknown`).
   - (test) `test/postgres.uuidLinks.test.js` and `test/postgres.stringKey.test.js` (live Postgres, in `npm run test:postgres`; each verified red first), `test/stringKey.unit.test.js`, and dialect unit tests.
+  - (fix) **Postgres datetimes are exact and time-zone-proof.** `t.datetime` was a naive TIMESTAMP written as a whole-second UTC wall clock and read back through `Date#toString`, so: (1) **milliseconds were dropped** on every write *and* every read; (2) reads were right **only while `process.env.TZ` was UTC** -- the pg driver parses a naive TIMESTAMP as *local* time, so a process whose TZ changed after load read every value hours off (measured: 9h under `Asia/Tokyo`). Now:
+    - new `t.datetime` columns are **`TIMESTAMPTZ`** (an absolute instant);
+    - Postgres writes send the full ISO instant with milliseconds (MySQL is unchanged: `DATETIME` without fsp *rounds* a fraction, so it still gets whole seconds);
+    - reads keep the driver's `Date` instead of round-tripping it through a string (all dialects; same instant, milliseconds kept);
+    - naive TIMESTAMP columns made by older versions are **left alone** (schema-sync treats them as equal to `t.datetime`, so no ALTER and no table rewrite) and are parsed as UTC by a per-connection type parser, so they no longer depend on the global TZ. Convert one when convenient with `ALTER TABLE t ALTER COLUMN c TYPE TIMESTAMPTZ USING c AT TIME ZONE 'UTC'`.
+  - (test) `test/postgres.datetime.test.js` (live Postgres: column type, exact round trip incl. milliseconds under `TZ=Asia/Tokyo` for both a timestamptz and a legacy naive column, zero-DDL resync; verified red first) and `test/deflateValue.datetime.unit.test.js`.
 ---
 - 2026-09-10 (2.7.0)
   - (feat) **`idleTimeout` is now configurable.** `lib/dbh.js` hardcoded `idleTimeout: 600` into both `poolConfig` and every `roConnConfig`, so a caller's value never reached the driver — measured, `idleTimeout: 999` reached neither pool while `minimumIdle: 3` (positive control) reached both. `dbh.js` now forwards it only when set and holds no literal; `MySQLDialect` and `PostgresDialect` each own the 600s default. **Unchanged for every consumer that does not set it.**
