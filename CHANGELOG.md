@@ -172,6 +172,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A lost connection could run a transaction twice.** A transaction inside
+  `retryIfConnectionLost` (`Model.withDbh((dbh) => dbh.transaction(...))`,
+  `findOrCreate()` without `tx`) was re-run when the connection dropped, even
+  after `COMMIT` was sent (a double apply). An error from a transaction that got
+  past `BEGIN` now carries `transactionBegan: true` and is never retried, nor is
+  a callback in which a transaction began before the connection was lost
+  (retrying re-runs the whole callback); a connection lost while leasing or on
+  `BEGIN` still is.
+- **`retryIfConnectionLost` raised a `TypeError` on a thrown `null` or
+  `undefined`**; it now rethrows the value as is.
 - **Postgres: a `Date` passed to raw `pquery` was written as a naive UTC wall
   clock**, which a `TIMESTAMPTZ` column read in the session's time zone. It is
   now sent as the ISO instant.
