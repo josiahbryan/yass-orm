@@ -356,7 +356,7 @@ export type DbHandle = {
  * Instance methods available on all DatabaseObject instances.
  * Use DatabaseObjectInstance<TSchema> to get schema-typed instances.
  */
-export interface DatabaseObjectInstanceMethods {
+export interface DatabaseObjectInstanceMethods extends ModelInstanceMethods {
 	/** Unique identifier */
 	id: string;
 
@@ -374,7 +374,14 @@ export interface DatabaseObjectInstanceMethods {
 
 	/** Optimistic concurrency control token */
 	nonce?: string;
+}
 
+/**
+ * The instance methods of every model, without DatabaseObject's loosely typed
+ * data fields (`id: string`, `name?: any`, ...): a defineModel() model types
+ * its own fields.
+ */
+export interface ModelInstanceMethods {
 	/**
 	 * Async JSONification.
 	 * NOTE: This is NOT `toJSON()`.
@@ -444,6 +451,13 @@ export interface DatabaseObjectInstanceMethods {
  */
 export type DatabaseObjectInstance<TSchema = AnyRecord> = TSchema &
 	DatabaseObjectInstanceMethods;
+
+/**
+ * Any model class: DatabaseObject, a subclass (what loadDefinition returns),
+ * or a defineModel() model, whose instances type their own fields (so it
+ * isn't a `typeof DatabaseObject`, whose `id` is a string).
+ */
+export type AnyModelClass = abstract new (...args: any[]) => ModelInstanceMethods;
 
 // ============================================================================
 // STATIC INTERFACE - Static methods available on all DatabaseObject classes
@@ -752,13 +766,13 @@ export declare class DatabaseObject {
 
 	static withDbh(sql: string, props?: AnyRecord): Promise<any>;
 
-	static fromSql<T extends typeof DatabaseObject>(
+	static fromSql<T extends AnyModelClass>(
 		this: T,
 		whereClause?: string,
 		args?: AnyRecord & { promisePoolMapConfig?: PromisePoolMapConfig },
 	): Promise<Array<InstanceType<T>>>;
 
-	static search<T extends typeof DatabaseObject>(
+	static search<T extends AnyModelClass>(
 		this: T,
 		fields?: AnyRecord,
 		limitOne?: false,
@@ -772,7 +786,7 @@ export declare class DatabaseObject {
 	 * Must come before the general `SearchOptions` overload below so the
 	 * `limitOne: true` literal discriminates correctly.
 	 */
-	static search<T extends typeof DatabaseObject>(
+	static search<T extends AnyModelClass>(
 		this: T,
 		fields: AnyRecord,
 		options: SearchOptions & { limitOne: true },
@@ -781,7 +795,7 @@ export declare class DatabaseObject {
 	): Promise<InstanceType<T> | null>;
 
 	/** Search with explicit bounds — always resolves to an ARRAY. */
-	static search<T extends typeof DatabaseObject>(
+	static search<T extends AnyModelClass>(
 		this: T,
 		fields: AnyRecord,
 		options: SearchOptions,
@@ -789,7 +803,7 @@ export declare class DatabaseObject {
 		txOptions?: TxOptions,
 	): Promise<Array<InstanceType<T>>>;
 
-	static search<T extends typeof DatabaseObject>(
+	static search<T extends AnyModelClass>(
 		this: T,
 		fields: AnyRecord,
 		limitOne: true,
@@ -801,26 +815,26 @@ export declare class DatabaseObject {
 	 * The second positional accepts `orderBy`/`orderDir`, pool-config keys, and
 	 * `tx`; anything else throws naming the key (BDL-2700).
 	 */
-	static searchOne<T extends typeof DatabaseObject>(
+	static searchOne<T extends AnyModelClass>(
 		this: T,
 		fields?: AnyRecord,
 		options?: SearchOneOptions,
 		txOptions?: TxOptions,
 	): Promise<InstanceType<T> | null>;
 
-	static get<T extends typeof DatabaseObject>(
+	static get<T extends AnyModelClass>(
 		this: T,
 		id: string,
 		opts?: FindOptions,
 	): Promise<InstanceType<T> | null>;
 
-	static create<T extends typeof DatabaseObject>(
+	static create<T extends AnyModelClass>(
 		this: T,
 		data: AnyRecord,
 		options?: TxOptions,
 	): Promise<InstanceType<T>>;
 
-	static findOrCreate<T extends typeof DatabaseObject>(
+	static findOrCreate<T extends AnyModelClass>(
 		this: T,
 		fields: AnyRecord,
 		patchIf?: AnyRecord,
@@ -840,7 +854,7 @@ export declare class DatabaseObject {
 	 * `conflictColumns` to override entirely. An ambiguous or absent target
 	 * throws rather than silently resolving to `undefined`.
 	 */
-	static createIgnore<T extends typeof DatabaseObject>(
+	static createIgnore<T extends AnyModelClass>(
 		this: T,
 		data: AnyRecord,
 		options?: TxOptions & {
@@ -851,7 +865,7 @@ export declare class DatabaseObject {
 		},
 	): Promise<InstanceType<T> | null>;
 
-	static inflate<T extends typeof DatabaseObject>(
+	static inflate<T extends AnyModelClass>(
 		this: T,
 		data: AnyRecord,
 		span?: any,
@@ -868,13 +882,13 @@ export declare class DatabaseObject {
 
 	static deflateValues(object?: AnyRecord, noUndefined?: boolean): AnyRecord;
 
-	static getCachedId<T extends typeof DatabaseObject>(
+	static getCachedId<T extends AnyModelClass>(
 		this: T,
 		id: string,
 		...args: any[]
 	): Promise<InstanceType<T> | undefined>;
 
-	static setCachedId<T extends typeof DatabaseObject>(
+	static setCachedId<T extends AnyModelClass>(
 		this: T,
 		id: string,
 		freshData: InstanceType<T>,
@@ -922,7 +936,7 @@ export type RegisteredModelName = Extract<keyof ModelRegistry, string>;
  * May return the module (`{ default: User }`) or a promise of either, so
  * `() => import('./user.js')` works too.
  */
-export type LazyModelReference<M extends ModelClass = ModelClass> = () =>
+export type LazyModelReference<M extends AnyModelClass = AnyModelClass> = () =>
 	| M
 	| { default: M }
 	| Promise<M | { default: M }>;
@@ -932,22 +946,22 @@ export type LazyModelReference<M extends ModelClass = ModelClass> = () =>
  * registered name, or a path string (resolved as it always has been).
  */
 export type LinkTarget =
-	| ModelClass
+	| AnyModelClass
 	| LazyModelReference
 	| RegisteredModelName
 	// Any other string: a path. `string & {}` keeps registered names autocompleting.
 	| (string & {});
 
-type UnwrapModelModule<R> = R extends ModelClass
+type UnwrapModelModule<R> = R extends AnyModelClass
 	? R
 	: R extends { default: infer D }
-	? D extends ModelClass
+	? D extends AnyModelClass
 		? D
 		: never
 	: never;
 
 /** The model class a link target names. */
-export type LinkedModelOf<T> = T extends ModelClass
+export type LinkedModelOf<T> = T extends AnyModelClass
 	? T
 	: T extends () => infer R
 	? UnwrapModelModule<Awaited<R>>
@@ -955,14 +969,25 @@ export type LinkedModelOf<T> = T extends ModelClass
 	? ModelRegistry[T]
 	: ModelClass;
 
-/** `t.linked(...)`'s field type. `__linkedModel` only carries the type. */
-export interface LinkedFieldType<M = ModelClass> {
-	(options?: AnyRecord): LinkedFieldType<M>;
+/**
+ * `t.linked(...)`'s field type: `T` is the link target as written (a model
+ * class, a lazy reference, a registered name or a path), `N` whether the
+ * column takes NULL. The linked model is worked out from `T` only when read,
+ * so models linked by registered name may link to each other.
+ */
+export interface LinkedFieldType<T = ModelClass, N extends boolean = true> {
+	(options?: AnyRecord): LinkedFieldType<T, N>;
 	readonly type: string;
 	readonly linkedModel: LinkTarget;
 	/** Type-level only: the linked model. Never set at runtime. */
-	readonly __linkedModel?: M;
-	description(text: string): LinkedFieldType<M>;
+	readonly __linkedModel?: LinkedModelOf<T>;
+	/** Type-level only: the target and nullability. Never set at runtime. */
+	readonly [linkInfo]?: { target: T; nullable: N };
+	description(text: string): LinkedFieldType<T, N>;
+	example(value: unknown): LinkedFieldType<T, N>;
+	nullable(): LinkedFieldType<T, true>;
+	/** A default id; the column becomes NOT NULL. */
+	default(value: string | number): LinkedFieldType<T, false>;
 	[key: string]: any;
 }
 
@@ -973,16 +998,238 @@ export type LinkOptions = {
 	[key: string]: unknown;
 };
 
+// ============================================================================
+// FIELD TYPES (t.*): what each one infers to, for defineModel()
+// ============================================================================
+
+declare const fieldInfo: unique symbol;
+declare const linkInfo: unique symbol;
+
 /**
- * The `types` (`t`) a definition function receives. `linked` and `parent`
- * are typed; the other field types are loose for now.
+ * Type-level only (never set at runtime): a field type's value, and whether
+ * its column takes NULL.
+ */
+export interface FieldInfo<V, N extends boolean> {
+	value: V;
+	nullable: N;
+}
+
+/**
+ * Which chain methods a field type has, as at runtime (lib/def-to-schema.js):
+ * strings get length/format methods, numbers min/max, `date`/`time`/
+ * `datetime` take `{ defaultValue }`, and `datetime` has `precision`.
+ */
+export type FieldKind = 'plain' | 'string' | 'number' | 'date' | 'datetime';
+
+/** The field type of kind `K` with value `V`, nullable when `N`. */
+export type FieldOf<K extends FieldKind, V, N extends boolean> = K extends 'string'
+	? StringField<V, N>
+	: K extends 'number'
+	? NumberField<V, N>
+	: K extends 'date'
+	? DateField<V, N>
+	: K extends 'datetime'
+	? DateTimeField<N>
+	: Field<V, N>;
+
+/** What every field type has. `N`: the column takes NULL (most do). */
+export interface FieldBase<K extends FieldKind, V, N extends boolean> {
+	/** Called with options, or with none: the same field type (`t.datetime()`). */
+	(options?: AnyRecord): FieldOf<K, V, N>;
+	readonly [fieldInfo]?: FieldInfo<V, N>;
+	readonly type: string;
+	/** For docs, zod's `.describe()` and the column comment. */
+	description(text: string): FieldOf<K, V, N>;
+	example(value: V): FieldOf<K, V, N>;
+	/** Takes NULL (the default for every column but keys and `t.bool`). */
+	nullable(): FieldOf<K, V, true>;
+	/** A default value; the column becomes NOT NULL. */
+	default(value: V): FieldOf<K, V, false>;
+}
+
+export interface Field<V, N extends boolean = true>
+	extends FieldBase<'plain', V, N> {}
+
+export interface StringField<V = string, N extends boolean = true>
+	extends FieldBase<'string', V, N> {
+	minLength(n: number): StringField<V, N>;
+	maxLength(n: number): StringField<V, N>;
+	pattern(pattern: RegExp | string): StringField<V, N>;
+	email(): StringField<V, N>;
+	url(): StringField<V, N>;
+	/** Compare case- and accent-exactly (MySQL: COLLATE utf8mb4_bin). */
+	exact(): StringField<V, N>;
+}
+
+export interface NumberField<V = number, N extends boolean = true>
+	extends FieldBase<'number', V, N> {
+	min(n: number): NumberField<V, N>;
+	max(n: number): NumberField<V, N>;
+	positive(): NumberField<V, N>;
+	negative(): NumberField<V, N>;
+	nonnegative(): NumberField<V, N>;
+}
+
+/** `t.date` and `t.time`: `YYYY-MM-DD` and `HH:MM:SS` strings. */
+export interface DateField<V = string, N extends boolean = true>
+	extends FieldBase<'date', V, N> {
+	/** `{ defaultValue }` makes the column NOT NULL, with that default. */
+	(options: { defaultValue: string; [key: string]: unknown }): DateField<
+		V,
+		false
+	>;
+	(options?: AnyRecord): DateField<V, N>;
+}
+
+export interface DateTimeField<N extends boolean = true>
+	extends FieldBase<'datetime', Date, N> {
+	/** `{ defaultValue }` makes the column NOT NULL, with that default. */
+	(options: {
+		defaultValue: string;
+		precision?: number;
+		[key: string]: unknown;
+	}): DateTimeField<false>;
+	(options?: AnyRecord): DateTimeField<N>;
+	/** Keep `n` (0-6) digits of fractional seconds (MySQL: DATETIME(n)). */
+	precision(n: number): DateTimeField<N>;
+}
+
+/**
+ * `t.object(...)` and `t.array(...)`: JSON in a longtext column, always
+ * nullable (their `.default()` doesn't make the column NOT NULL).
+ */
+export interface JsonField<V> {
+	(field: string, ...rest: any[]): any;
+	readonly [fieldInfo]?: FieldInfo<V, true>;
+	description(text: string): JsonField<V>;
+	example(value: unknown): JsonField<V>;
+	nullable(): JsonField<V>;
+	default(value: V): JsonField<V>;
+}
+
+export interface JsonArrayField<V> extends JsonField<V> {
+	description(text: string): JsonArrayField<V>;
+	example(value: unknown): JsonArrayField<V>;
+	nullable(): JsonArrayField<V>;
+	default(value: V): JsonArrayField<V>;
+	minItems(n: number): JsonArrayField<V>;
+	maxItems(n: number): JsonArrayField<V>;
+	min(n: number): JsonArrayField<V>;
+	max(n: number): JsonArrayField<V>;
+}
+
+/** What `t.hasMany(...)` gives: a hint for other tools, not a column. */
+export type HasManyHint = 'CLIENT_ONLY_FIELD';
+
+type NullIf<N> = N extends true ? null : never;
+type IsAny<T> = 0 extends 1 & T ? true : false;
+
+/** The instance type of a model class. */
+type InstanceOf<M> = M extends abstract new (...args: any[]) => infer I
+	? I
+	: never;
+
+/**
+ * A field type's value on an instance: `null` included where the column
+ * takes NULL, and a link as the linked model's instance.
+ */
+export type FieldValue<F> = IsAny<F> extends true
+	? any
+	: F extends LinkedFieldType<infer T, infer N>
+	? InstanceOf<LinkedModelOf<T>> | NullIf<N>
+	: F extends { readonly [fieldInfo]?: FieldInfo<infer V, infer N> }
+	? V | NullIf<N>
+	: unknown;
+
+/**
+ * A value inside a JSON field (a t.object sub-field, a t.array item): what
+ * JSON gives back. A date is its ISO string, a link its id.
+ */
+type JsonValue<F> = IsAny<F> extends true
+	? any
+	: F extends LinkedFieldType<any, infer N>
+	? string | number | NullIf<N>
+	: F extends { readonly [fieldInfo]?: FieldInfo<infer V, infer N> }
+	? (V extends Date ? string : V) | NullIf<N>
+	: unknown;
+
+/** A t.object's value: every sub-field optional. */
+type JsonShape<S> = { [K in keyof S]?: JsonValue<S[K]> };
+
+/**
+ * A t.array item: a string, number or boolean item type as that (an enum's
+ * options don't survive t.array(), so its items are strings), an object's
+ * shape as that, anything else unknown.
+ */
+type JsonArrayItem<F> = F extends { readonly [fieldInfo]?: FieldInfo<infer V, any> }
+	? [V] extends [string]
+		? string
+		: [V] extends [number]
+		? number
+		: [V] extends [boolean]
+		? boolean
+		: V extends Date
+		? unknown
+		: V
+	: unknown;
+
+/**
+ * The `types` (`t`) a definition function (or defineModel's `schema`)
+ * receives. Each field type carries the value type it infers to.
  */
 export interface SchemaTypes {
+	/** Auto-increment integer primary key. */
+	idKey: Field<number, false>;
+	/** UUID primary key (a string). */
+	uuidKey: Field<string, false>;
+	/** App-generated string primary key: `prefix` ids (see lib/objectId.js). */
+	stringKey: Field<string, false>;
+	string: StringField;
+	text: StringField;
+	color: StringField;
+	/** A char(36) UUID column (not a key). */
+	uuid: StringField;
+	/** Any JSON value, stored as text. */
+	any: StringField<unknown>;
+	int: NumberField;
+	integer: NumberField;
+	real: NumberField;
+	float: NumberField;
+	number: NumberField;
+	/** A BIGINT, read as a string (JS numbers stop being exact at 2^53). */
+	bigint: Field<string>;
+	/** NOT NULL, default false. */
+	bool: Field<boolean, false>;
+	boolean: Field<boolean, false>;
+	/** `YYYY-MM-DD`. */
+	date: DateField;
+	/** `HH:MM:SS` (may pass 24 hours). */
+	time: DateField;
+	datetime: DateTimeField;
+	enum<O extends string | number>(
+		options: readonly O[],
+		config?: { default?: O; defaultValue?: O; [key: string]: unknown },
+	): StringField<O>;
+	object(): JsonField<Record<string, unknown>>;
+	object<S extends Record<string, unknown>>(options: {
+		schema: S;
+		noExpand?: boolean;
+	}): JsonField<JsonShape<S>>;
+	object<S extends Record<string, unknown>>(options: {
+		expand: S;
+		noExpand?: boolean;
+	}): JsonField<JsonShape<S>>;
+	object<S extends Record<string, unknown>>(
+		shape: S,
+	): JsonField<JsonShape<Omit<S, 'noExpand'>>>;
+	array(): JsonArrayField<unknown[]>;
+	array<F>(itemType: F): JsonArrayField<Array<JsonArrayItem<F>>>;
 	linked<T extends LinkTarget>(
 		target: T,
 		options?: LinkOptions,
-	): LinkedFieldType<LinkedModelOf<T>>;
-	parent<T extends LinkTarget>(target: T): LinkedFieldType<LinkedModelOf<T>>;
+	): LinkedFieldType<T>;
+	parent<T extends LinkTarget>(target: T): LinkedFieldType<T>;
+	hasMany(target?: LinkTarget, options?: AnyRecord): HasManyHint;
 	[type: string]: any;
 }
 
@@ -992,10 +1239,15 @@ export type DefinitionFunction = (context: {
 	[key: string]: any;
 }) => AnyRecord;
 
-/** The model a registry name takes: its declared type, or any model. */
+/** The model a registry name gives back: its declared type, or any model. */
 type ModelForName<K> = K extends RegisteredModelName
 	? ModelRegistry[K]
 	: ModelClass;
+
+/** The model a registry name takes: its declared type, or any model class. */
+type ModelArgForName<K> = K extends RegisteredModelName
+	? ModelRegistry[K]
+	: AnyModelClass;
 
 /**
  * Registers a model under `name`, for `t.linked(name)`. The same model again
@@ -1006,7 +1258,7 @@ type ModelForName<K> = K extends RegisteredModelName
  */
 export declare function registerModel<K extends string>(
 	name: K,
-	model: ModelForName<K>,
+	model: ModelArgForName<K>,
 ): () => void;
 
 /**
@@ -1014,7 +1266,7 @@ export declare function registerModel<K extends string>(
  * @returns A function that unregisters them
  */
 export declare function registerModels<
-	M extends { [K in keyof M]: ModelForName<K> },
+	M extends { [K in keyof M]: ModelArgForName<K> },
 >(models: M): () => void;
 
 /** The model registered under `name`, or undefined. */
@@ -1047,9 +1299,178 @@ export type LinkCheckReport = {
  * `problems` property holds the list).
  */
 export declare function checkLinks(options?: {
-	models?: ModelClass[] | Record<string, ModelClass>;
+	models?: AnyModelClass[] | Record<string, AnyModelClass>;
 	throwIfBroken?: boolean;
 }): Promise<LinkCheckReport>;
+
+// ============================================================================
+// defineModel: a model whose types are inferred from its schema
+// ============================================================================
+
+/** The schema's columns: every key but `t.hasMany` hints. */
+type ColumnKeys<S> = {
+	[K in keyof S]: S[K] extends HasManyHint ? never : K;
+}[keyof S];
+
+/** `id` (the auto-increment key) and `isDeleted`, unless the schema has them. */
+type ImplicitFields<S> = ('id' extends keyof S ? {} : { id: number }) &
+	('isDeleted' extends keyof S ? {} : { isDeleted: boolean });
+
+/**
+ * A defined model's fields, as on an instance, from its schema `S` (what
+ * `schema: (t) => S` returns): each column's value, `null` where the column
+ * takes NULL, links as the linked model's instance.
+ */
+export type ModelFields<S> = {
+	[K in ColumnKeys<S>]: FieldValue<S[K]>;
+} & ImplicitFields<S>;
+
+/** An instance of a defined model: its fields and the model methods. */
+export type ModelInstance<S> = ModelFields<S> & ModelInstanceMethods;
+
+/** A field's value as plain data: a link is its id. */
+type DataValue<F> = F extends LinkedFieldType<any, infer N>
+	? string | number | NullIf<N>
+	: FieldValue<F>;
+
+/** A field's value as `create()` takes it: a link as an instance or its id. */
+type InputValue<F> = F extends LinkedFieldType<infer T, infer N>
+	? InstanceOf<LinkedModelOf<T>> | string | number | NullIf<N>
+	: FieldValue<F>;
+
+/** A defined model's data (what `Model.zod` parses to): every field optional, links as ids. */
+export type ModelData<S> = {
+	[K in keyof ModelFields<S>]?: K extends ColumnKeys<S>
+		? DataValue<S[K]>
+		: ModelFields<S>[K];
+};
+
+/** What `create()` and `findOrCreate()` take: every field optional. */
+export type ModelInput<S> = {
+	[K in keyof ModelFields<S>]?: K extends ColumnKeys<S>
+		? InputValue<S[K]>
+		: ModelFields<S>[K];
+};
+
+/**
+ * `Model.zod`: a zod schema for the model's data. Typed here by what it
+ * parses to (so yass needs no zod types); the rest of zod's API is there,
+ * untyped.
+ */
+export interface ModelZodSchema<T> {
+	parse(data: unknown): T;
+	parseAsync(data: unknown): Promise<T>;
+	safeParse(
+		data: unknown,
+	):
+		| { success: true; data: T; error?: undefined }
+		| { success: false; data?: undefined; error: Error & { issues: any[] } };
+	[key: string]: any;
+}
+
+/** What defineModel() adds to the model class (and its subclasses). */
+export interface DefinedModelStatics<S> {
+	/** Type-level only: the schema. Never set at runtime. */
+	readonly __schema?: S;
+	/** The definition function: `({ types }) => ({ table, schema, ... })`. */
+	readonly definition: DefinitionFunction;
+	/** The table name the model was defined with. */
+	readonly defaultTable: string;
+	/**
+	 * Renames the table, before the schema is first read (at startup);
+	 * afterwards only the same name. See applyTableNames().
+	 */
+	useTable<T>(this: T, name: string): T;
+	/** A zod schema for the model's data (needs the `zod` package). */
+	readonly zod: ModelZodSchema<ModelData<S>>;
+	create<T extends AnyModelClass>(
+		this: T,
+		data: ModelInput<S>,
+		options?: TxOptions,
+	): Promise<InstanceType<T>>;
+	findOrCreate<T extends AnyModelClass>(
+		this: T,
+		fields: ModelInput<S>,
+		patchIf?: ModelInput<S>,
+		patchIfFalsey?: ModelInput<S>,
+		options?: Pick<
+			FindOrCreateOptions,
+			'useTransaction' | 'transactionOptions' | 'tx'
+		>,
+	): Promise<InstanceType<T>>;
+}
+
+/**
+ * The class defineModel() returns for schema `S`. Extend it to add methods:
+ * `class User extends defineModel({ ... }) { greet() { ... } }`; the statics
+ * (`get`, `search`, `create`, ...) then return the subclass's instances.
+ */
+export type DefinedModel<S> = Omit<
+	typeof DatabaseObject,
+	'prototype' | 'create' | 'findOrCreate'
+> &
+	DefinedModelStatics<S> & {
+		new (...args: any[]): ModelInstance<S>;
+		prototype: ModelInstance<S>;
+	};
+
+/** Any model from defineModel(), or a subclass of one. */
+export type AnyDefinedModel = AnyModelClass & {
+	readonly defaultTable: string;
+	useTable(name: string): unknown;
+};
+
+/** defineModel()'s options. */
+export interface DefineModelOptions<S> {
+	/** The table (its default name: apps may rename it, see applyTableNames). */
+	table: string;
+	/** The fields: `(t) => ({ name: t.string, org: t.linked(() => Org) })`. */
+	schema: (t: SchemaTypes) => S;
+	/** Id prefix: ids are `<prefix>_<timeOrderedId>` (use with `id: t.stringKey`). */
+	prefix?: string;
+	indexes?: AnyRecord;
+	triggers?: Record<string, TriggerSpec>;
+	/** Adds the config's `commonFields` (not in the inferred type). */
+	includeCommonFields?: boolean;
+	legacyExternalSchema?: boolean;
+	options?: AnyRecord;
+	/** Anything else a definition may hold (`sortBy`, `disableAutoUpdatedAt`, ...). */
+	[key: string]: unknown;
+}
+
+/**
+ * Defines a model from an inline schema. Its types are inferred from that
+ * schema, so it needs no generated `.d.ts` or `.zod.ts`:
+ *
+ * ```ts
+ * export const Org = defineModel({
+ *   table: 'orgs',
+ *   prefix: 'org',
+ *   schema: (t) => ({ id: t.stringKey, name: t.string, owner: t.linked(() => User) }),
+ * });
+ * export class OrgModel extends Org { get label() { return this.name ?? ''; } }
+ * ```
+ *
+ * The schema is built when first read. Two models that link to each other
+ * by lazy reference can't both infer their types (TypeScript can't type two
+ * initializers that each need the other's type): link one side by a
+ * registered name instead (`t.linked('user')`, typed by ModelRegistry).
+ */
+export declare function defineModel<S extends Record<string, unknown>>(
+	options: DefineModelOptions<S>,
+): DefinedModel<S>;
+
+/**
+ * Renames defined models' tables, before first use: each takes the name
+ * given for its default table in `tables`, else `tablePrefix` + its default.
+ * Throws, renaming nothing, on a `tables` key that is no model's default
+ * table or two models on one table.
+ * @returns Default table name -> table name, for every model
+ */
+export declare function applyTableNames(
+	models: AnyDefinedModel[] | Record<string, AnyDefinedModel>,
+	options?: { tables?: Record<string, string>; tablePrefix?: string },
+): Record<string, string>;
 
 export declare function convertDefinition(definition: any): SchemaDefinition;
 

@@ -877,10 +877,100 @@ await checkLinks({ throwIfBroken: true }); // or: one error listing them all
 It is opt-in: call it at boot. A path link resolves as a read would, so its
 model file is imported.
 
+## Defining models (`defineModel`)
+
+`defineModel` defines a model from an inline schema. Its TypeScript types are
+inferred from that schema, so a new model needs no generated `.d.ts` or
+`.zod.ts` (`bin/generate-types` stays for `loadDefinition` models):
+
+```ts
+import { defineModel } from 'yass-orm';
+
+export const Org = defineModel({
+	table: 'orgs',
+	prefix: 'org', // ids are org_<timeOrderedId>
+	schema: (t) => ({
+		id: t.stringKey,
+		name: t.string.default(''),
+		plan: t.enum(['free', 'pro']),
+		owner: t.linked(() => User),
+		team: t.linked('team'), // a registered name
+	}),
+});
+
+// Methods go on a subclass, as with loadDefinition.
+export class OrgModel extends Org {
+	get label() {
+		return `${this.name} (${this.plan ?? 'free'})`;
+	}
+}
+
+const org = await OrgModel.get('org_1'); // OrgModel | null
+org?.name; // string
+org?.plan; // 'free' | 'pro' | null
+org?.owner; // the User instance, or null
+await OrgModel.create({ name: 'Acme', owner: user }); // typed fields; a link takes an instance or an id
+```
+
+- **The types.** Keys, `t.bool`, and fields with a `.default(...)` (or
+  `{ defaultValue }` on `t.date`/`t.time`/`t.datetime`) are never null; every
+  other column is `T | null`, as it is in SQL (`.nullable()` says so
+  explicitly). `t.bigint` is a string, `t.date` and `t.time` are strings,
+  `t.datetime` a `Date`, `t.enum([...])` the union of its options,
+  `t.object({ ... })` its shape (every key optional), `t.array(t.string)` a
+  `string[]`, `t.any` `unknown`. A link is the linked model's instance: a
+  lazy reference gives its target's type (a subclass keeps its methods), a
+  registered name the type `ModelRegistry` lists, and a path any
+  `DatabaseObject`. `t.hasMany` isn't a column. The chain methods exist only
+  where they do at runtime (`t.int.email()` doesn't compile). With no `id` in
+  the schema, `id` is the auto-increment `number`. `includeCommonFields`
+  adds the config's fields at runtime, but they aren't in the inferred type.
+- **Links that form a cycle** (two models linking to each other, or a model to
+  itself) must use a registered name on at least one side: TypeScript can't
+  infer two initializers that each need the other's type (a lazy reference
+  there fails with TS7022). Registered names are resolved lazily in the types,
+  so they may link in any direction. At run time both styles handle cycles.
+- **The schema is built when first read** (by a query, or `schema()`,
+  `table()`, `fields()`), not when the model is defined, so the config and the
+  table name can be set at startup.
+- **`Model.definition`** is the definition function
+  (`({ types }) => ({ table, schema, ... })`), and `convertDefinition()`
+  takes the model itself, so `schema-sync` and `generate-types` accept a file
+  whose default export is a defined model.
+- **Table names are defaults.** `Model.useTable(name)` renames the table
+  before first use (after it, only the same name). `applyTableNames(models,
+  { tables, tablePrefix })` does it for a list, by default table name, and
+  returns the resulting map; it throws, renaming nothing, for a name that is
+  no model's default table or two models on one table:
+
+  ```js
+  applyTableNames([User, Session], { tables: { users: 'tessera_users' } });
+  // { users: 'tessera_users', sessions: 'sessions' }
+  ```
+
+- **`Model.zod`**: a zod schema for the model's data, built on first read
+  (needs the `zod` package, 3.25 or later, in your app; yass doesn't depend
+  on it). Every field is optional, null is allowed where the column is
+  nullable, and a link is its id. It is typed by what it parses to
+  (`ModelData<S>`); the rest of zod's API is there, untyped.
+- Everything else is `loadDefinition`'s class: the configured `baseClass`,
+  `prefix` as `objectIdPrefix`, and any other key (`indexes`, `triggers`,
+  `options`, ...) as in a definition file.
+- Types to name: `DefinedModel<S>`, `ModelFields<S>`, `ModelInstance<S>`,
+  `ModelData<S>`, `ModelInput<S>`, `AnyModelClass`, and the field types
+  (`StringField`, `NumberField`, `LinkedFieldType`, ...).
+
 ## Recent changes
 
 ---
 - 2026-09-23 (unreleased)
+  - (feat) **`defineModel`: models whose TypeScript types are inferred from their schema** (step 6 of the modernization plan; see *Defining models*). No codegen for new models: the instance type (every field, nullability, enum unions, object shapes, links as the linked model's instance, a subclass's methods), `create()`'s input, and `Model.zod`'s output all come from the schema. The runtime stays plain JavaScript (no build step; the types are in `index.d.ts`). The class is the one `loadDefinition` makes (`lib/model/definition-loader.js` `createModelClass`, now shared), with its schema built on first read; `lib/model/define-model.js` and `lib/model/zod.js` are new.
+  - (feat) **Table renaming at startup: `Model.useTable(name)` and `applyTableNames(models, { tables, tablePrefix })`**, for defined models, whose table names are defaults (Tessera's `auth({ tables })`).
+  - (feat) **`Model.zod`**, built at run time from the schema. `zod` is loaded from the app that defined the model; yass doesn't depend on it (a dev dependency, for the tests).
+  - (feat) `convertDefinition()` takes a defined model (and so `schema-sync` and `generate-types` take a file exporting one).
+  - (types) `index.d.ts`: every `t.*` field type is typed (`StringField`, `NumberField`, `DateField`, `DateTimeField`, `JsonField`, `LinkedFieldType<T, N>` ...), plus `defineModel`, `applyTableNames`, `DefinedModel<S>`, `ModelFields<S>`, `ModelInstance<S>`, `ModelData<S>`, `ModelInput<S>`, `ModelZodSchema<T>`, `AnyModelClass` and `ModelInstanceMethods` (the instance methods without `DatabaseObject`'s loosely typed data fields; `DatabaseObjectInstanceMethods` extends it). `DatabaseObject`'s statics constrain `this` to `AnyModelClass` rather than `typeof DatabaseObject`, and links, the registry and `checkLinks` take any `AnyModelClass`, so a defined model (whose `id` may be a number) fits: looser only, so nothing that compiled stops compiling. `LinkedFieldType`'s parameter is now the link target (a model class still works, and `__linkedModel` is unchanged), so a registered-name link's model is looked up only when read and names may form cycles.
+  - (note) `t.array(t.enum([...]))` keeps no options: `def-to-schema` reads the enum's varchar type first, so its items are plain strings in generate-types, `Model.zod` and the inferred type alike. Left as it is (changing it changes generated types).
+  - (test) `test/define-model.test.js` (live, on MySQL and in `npm run test:postgres`: every field type round trip, links by lazy reference to a subclass through a require cycle, a self-link, a registered name, `checkLinks`, a renamed table read and written, `Model.zod`) and `test-d/define-model.test-d.ts` (field types, nullability, the chain methods, statics and `create()` input on the model and a subclass, links to a subclass, a model, an import and a registered name, a registered-name cycle, the registry, `Model.zod`, table names); each red first. The characterization suites are unchanged and green.
   - (feat) **SQL helpers: `sqlHelpers`** (`lib/sql-helpers.js`, step 7 of the modernization plan), for raw SQL that runs on MySQL and Postgres alike: `inList`, `now`, `addInterval` / `subtractInterval`, `nullSafeEqual` / `nullSafeNotEqual`, `nullsLast`, `count` (a JS number on both), `forUpdate`, `lockKey` (a transaction-scoped lock on a name, in place of `pg_advisory_xact_lock`), `upsertWhere` (upsert with a condition) and `readBack` (a write and a read in one transaction, in place of `RETURNING`). The per-dialect SQL is on the dialect classes. See *SQL helpers*. Each is tested live on MySQL and Postgres (`test/sql-helpers.test.js`) and at the SQL level on all three dialects.
   - (feat) **`Model.find()` works on Postgres.** `lib/finder.js` took MySQL's backticks, `IFNULL`, `LIMIT skip, limit` and the `isDeleted = 0` literal as given; they now come from the dialect (`quoteIdentifierOnce`, `ifNullSql`, `concatSql`, `limitSql`, `toBooleanLiteral`), and the Postgres dialect turns the `?` placeholders finder and its hooks write into `$1, $2, ...` (only with a non-empty array of values and no `$N` already in the SQL). The count for `total` is read back under either spelling of its alias (Postgres folds the unquoted `totalRows` to `totalrows`). The SQL on MySQL is unchanged. `find({ q })` throws a clear error where `match_ratio()` isn't installed (every dialect but MySQL). The hooks' `dbQuote` quotes for the dialect.
   - (refactor) **One connection wrapper in `BaseDialect`** (`createConnectionWrapper`, `compileQuery`): the Postgres and SQLite wrappers were copies of each other (`query` taking mariadb's options object, `pquery`, `roQuery`, `escapeId`, `escape`, `end`, `close`); each now gives only how it runs one statement. MySQL's mariadb pool, and what `dbh` bolts on, are unchanged.

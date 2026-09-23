@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`defineModel({ table, prefix, schema: (t) => ({ ... }) })`**: a model
+  whose TypeScript types are inferred from its schema (fields, nullability,
+  links as the linked model's instance, a subclass's methods, `create()`'s
+  input), so new models need no codegen. Plain JavaScript at runtime; the
+  types are in `index.d.ts`. The schema is built on first read.
+- **`Model.useTable(name)` and `applyTableNames(models, { tables,
+  tablePrefix })`**: rename defined models' tables at startup.
+- **`Model.zod`**: a zod schema for the model's data, built at run time
+  (`zod` comes from the app; yass doesn't depend on it).
+- `convertDefinition()` accepts a defined model, so `schema-sync` and
+  `generate-types` accept a file exporting one.
+- (types) Every `t.*` field type is typed; `DefinedModel`, `ModelFields`,
+  `ModelInstance`, `ModelData`, `ModelInput`, `ModelZodSchema`,
+  `AnyModelClass`, `ModelInstanceMethods`. `DatabaseObject`'s statics, links,
+  the registry and `checkLinks` accept any `AnyModelClass` (looser only).
+
 - **SQL helpers: `sqlHelpers`** (`lib/sql-helpers.js`): `inList`, `now`,
   `addInterval` / `subtractInterval`, `nullSafeEqual` / `nullSafeNotEqual`,
   `nullsLast`, `count`, `forUpdate`, `lockKey` (in place of
