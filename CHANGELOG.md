@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`YASS_DEBUG`: one switch for debug logging.** A comma-separated list of
+  areas (`cache`, `path-resolver`, `model-index`, `definition-index`, `finder`)
+  or `*`. `DEBUG_MODEL_CACHE_HITS=true`, `YASS_DEBUG_PATH_RESOLVER`,
+  `YASS_DEBUG_MODEL_INDEX` and `YASS_DEBUG_DEFINITION_INDEX` still work as
+  aliases.
+- **`engines`: Node >= 20.** The lowest version the dependencies install on
+  (`better-sqlite3` 12 supports 20+); the code alone needs 14+.
 - **`t.stringKey` + `objectIdPrefix`: prefixed, time-ordered string ids**
   (`chat_0mfq3k2z1...`) on every dialect, `stringLinkedIds` for link columns that
   hold them, and exported `prefixedId()` / `timeOrderedId()`. VARCHAR(36) on
@@ -16,8 +23,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`finder.js` is quiet by default.** Its per-`find()` diagnostic logs (the
+  processed query, the generated SQL with timing, each filter's SQL with its id
+  count) print only with `YASS_DEBUG=finder`.
+- **`match_ratio()` declares `RETURNS int`** instead of `RETURNS int(11)`, which
+  MySQL 8 deprecates. Same results; an installed function is left as it is.
+- `babel-eslint` moved to `devDependencies`, so consumers no longer install it.
+- `sync-to-db.js` uses `lib/promiseMap.js` instead of its own copy (same order,
+  same results, same first-error behavior; it now yields to the event loop every
+  8 items, and its unused `debug` argument logs only for `true` or a string).
+  Its `promiseMap` export stays.
+
 - **Postgres: `t.datetime` is `TIMESTAMPTZ`** for new columns. Existing naive
   `TIMESTAMP` columns are left as they are (no ALTER, no rewrite).
+
+### Removed
+
+- About 190 lines of commented-out code, and the dead `DRY_RUN` constant in
+  `sync-to-db.js`. No behavior change.
 
 ### Fixed
 

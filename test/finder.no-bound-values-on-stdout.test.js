@@ -8,7 +8,8 @@
  * leak into other suites' module cache.
  *
  * The diagnostic value of those log lines (query shape, timing, id counts)
- * must still print: redact, do not silence.
+ * must still print when asked for: redact, do not silence. Since they are debug
+ * output, they print only with YASS_DEBUG=finder (see lib/debug.js).
  */
 const path = require('path');
 const crypto = require('crypto');
@@ -31,19 +32,26 @@ describe('finder.js does not print bound parameter values (BDL-3886)', () => {
 	};
 	const unusedNonce = nonce();
 	let run;
+	let quietRun;
 
-	before(() => {
-		run = spawnSync(process.execPath, [PROBE], {
+	const runProbe = (extraEnv) =>
+		spawnSync(process.execPath, [PROBE], {
 			env: {
 				...process.env,
+				YASS_DEBUG: '',
 				NONCE_Q: nonces.Q,
 				NONCE_FIELD: nonces.FIELD,
 				NONCE_HOOK: nonces.HOOK,
 				NONCE_FILTER: nonces.FILTER,
+				...extraEnv,
 			},
 			encoding: 'utf8',
 			timeout: 30000,
 		});
+
+	before(() => {
+		run = runProbe({ YASS_DEBUG: 'finder' });
+		quietRun = runProbe({});
 	});
 
 	it('probe ran to completion and every nonce was really bound (positive control)', () => {
@@ -93,5 +101,13 @@ describe('finder.js does not print bound parameter values (BDL-3886)', () => {
 		expect(out).to.include('[custom-query-filter.filterData] (probe)');
 		expect(out).to.include('select id from widgets where secretNote = ?');
 		expect(out).to.match(/Resulting ID count: 2/);
+	});
+
+	it('prints none of that diagnostic output without YASS_DEBUG=finder', () => {
+		expect(quietRun.status, `probe stderr:\n${quietRun.stderr}`).to.equal(0);
+		const out = quietRun.stdout;
+		expect(out).to.not.include('finder.js: After processing query.q');
+		expect(out).to.not.include('******** generated:');
+		expect(out).to.not.include('[custom-query-filter.filterData]');
 	});
 });

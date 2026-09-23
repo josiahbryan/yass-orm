@@ -662,6 +662,26 @@ count; it exits non-zero otherwise. Credentials come from your `.yass-orm.js`.
 
 See BC-3587 in the CHANGELOG for the shape of the bug that motivated the probe.
 
+## Debug logging (`YASS_DEBUG`)
+
+Set `YASS_DEBUG` to a comma-separated list of areas, or `*` for all of them:
+
+```sh
+YASS_DEBUG=cache,path-resolver node app.js
+```
+
+| Area | Logs |
+| --- | --- |
+| `cache` | model-class and definition cache hits and misses |
+| `path-resolver` | link and definition path resolution (bundled builds) |
+| `model-index` | misses in the bundled model path index |
+| `definition-index` | misses in the bundled definition index |
+| `finder` | `finder.js`'s generated SQL (placeholders only), timings and id counts |
+
+The older flags still work as aliases: `DEBUG_MODEL_CACHE_HITS=true` (`cache`),
+`YASS_DEBUG_PATH_RESOLVER` (`path-resolver`), `YASS_DEBUG_MODEL_INDEX`
+(`model-index`) and `YASS_DEBUG_DEFINITION_INDEX` (`definition-index`).
+
 ## Recent changes
 
 ---
@@ -679,6 +699,15 @@ See BC-3587 in the CHANGELOG for the shape of the bug that motivated the probe.
   - (test) `test/postgres.datetime.test.js` (live Postgres: column type, exact round trip incl. milliseconds under `TZ=Asia/Tokyo` for both a timestamptz and a legacy naive column, zero-DDL resync; verified red first) and `test/deflateValue.datetime.unit.test.js`.
   - (fix, **security**) **schema-sync no longer puts the database password on a command line or in the log.** `uploadMatchRatioFunction` installed `match_ratio()` by writing the SQL to `/tmp/f<pid>.sql` and running `$(which mysql) -u <user> --password=<pass> ... < file` through `execSync`, and it printed that command, password included. The command was built from config values, so it was also open to shell injection, and the existence check interpolated the schema name into SQL. The function is now created over the existing driver connection, as the trigger reconciler already does: no shell, no temp file, no `mysql` CLI needed on the box. The function body is unchanged (only the CLI's `DELIMITER` framing is gone); it is still skipped when `match_ratio` already exists, and the existence check is parameterized. `uploadMatchRatioFunction()` now returns its promise and `bin/schema-sync` awaits it, so a failed install fails the run instead of becoming an unhandled rejection. MySQL/MariaDB only; Postgres and SQLite still skip it.
   - (test) `test/schemaSync.matchRatioFunction.test.js` (live MySQL: installs from scratch and checks `SELECT match_ratio(...)` results, `child_process.execSync` never called, the password never in console output, no-op when present, a failed install rejects; verified red first).
+  - (chore) **Pruning, no behavior change.**
+    - Removed about 190 lines of commented-out code from `lib/obj.js`, `finder.js`, `dbh.js`, `sync-to-db.js`, `def-to-schema.js` and `utils.js`; comments that explain *why* stay.
+    - `sync-to-db.js`: removed the `DRY_RUN = false` constant and its dead branch, and its private copy of `promiseMap` (it now uses `lib/promiseMap.js`, which runs the list in the same order, stops on the same first error and returns the same results; it also yields to the event loop every 8 items, and its `debug` argument, which no caller passes, logs only for `true` or a string). `require('yass-orm/lib/sync-to-db').promiseMap` is still exported.
+    - `babel-eslint` moved from `dependencies` to `devDependencies`: consumers no longer install it.
+    - Added `"engines": { "node": ">=20" }`. The code itself needs Node 14+, but `better-sqlite3` 12 (a hard dependency) supports only Node 20+ and `pg` 8.23 needs 16+, so 20 is the lowest version that installs. Advisory only unless you run with `engine-strict`.
+  - (fix) `match_ratio()` now declares `RETURNS int` instead of `RETURNS int(11)`, which MySQL 8 deprecates (it warned on every install). Same results. An existing `match_ratio` is left as it is (the installer still skips it when present).
+  - (feat) **One debug switch: `YASS_DEBUG`.** A comma-separated list of areas (`cache`, `path-resolver`, `model-index`, `definition-index`, `finder`) or `*`; see *Debug logging*. The four older flags keep working as aliases.
+  - (change) **`finder.js` no longer logs on every `find()`.** Its three diagnostic lines (the processed query, the generated SQL with timing, and each filter's SQL with id count) now print only with `YASS_DEBUG=finder`. They still carry placeholders and counts only, never bound values.
+  - (test) `test/debug.unit.test.js` (areas, `*`, the four aliases and their exact truthiness); `test/finder.no-bound-values-on-stdout.test.js` now runs the probe with and without `YASS_DEBUG=finder`.
 ---
 - 2026-09-10 (2.7.0)
   - (feat) **`idleTimeout` is now configurable.** `lib/dbh.js` hardcoded `idleTimeout: 600` into both `poolConfig` and every `roConnConfig`, so a caller's value never reached the driver — measured, `idleTimeout: 999` reached neither pool while `minimumIdle: 3` (positive control) reached both. `dbh.js` now forwards it only when set and holds no literal; `MySQLDialect` and `PostgresDialect` each own the 600s default. **Unchanged for every consumer that does not set it.**

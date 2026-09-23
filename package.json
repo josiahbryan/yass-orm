@@ -8,6 +8,9 @@
   "bin": {
     "yass-orm-schema-sync": "bin/schema-sync"
   },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "test": "npm run test:schema-sync && mocha --exit --reporter spec test/**/*.test.js test/**/*.test.mjs test/test.js lib/**/*.test.js && npm run test:types",
     "test:schema-sync": "node bin/schema-sync test/fake*.js",
@@ -47,7 +50,6 @@
     }
   },
   "dependencies": {
-    "babel-eslint": "^10.1.0",
     "better-sqlite3": "^12.6.2",
     "chalk": "^4.1.2",
     "find-config": "^1.0.0",
@@ -61,6 +63,7 @@
     "@types/node": "^25.0.2",
     "@typescript-eslint/eslint-plugin": "^5.62.0",
     "@typescript-eslint/parser": "^5.62.0",
+    "babel-eslint": "^10.1.0",
     "boxy-jsdoc-template": "^2.0.2",
     "chai": "^4.3.4",
     "eslint": "^7.32.0",
