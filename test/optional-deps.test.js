@@ -1,6 +1,8 @@
 /* global describe, it, before */
 const { expect } = require('chai');
 const { spawnSync } = require('child_process');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const config = require('../lib/config');
@@ -115,6 +117,25 @@ describe('#optional dependencies', function optionalDepsSuite() {
 			expect(caught.cause && caught.cause.code).to.equal('MODULE_NOT_FOUND');
 		});
 
+		it("recognizes a Bun-compiled executable's missing-module error", () => {
+			// Inside a `bun build --compile` executable, an unbundled package fails
+			// with this message and no `code`.
+			const result = runChild(
+				`${CAPTURE}
+				const Module = require('module');
+				const resolve = Module._resolveFilename;
+				Module._resolveFilename = function bunLike(request, ...rest) {
+					if (request === 'pg') throw new Error('Cannot require module pg');
+					return resolve.call(this, request, ...rest);
+				};
+				const { requireOptional } = require(process.env.ROOT + '/lib/optional-dependency');
+				capture(() => requireOptional('pg', { feature: 'x' })).then((r) => console.log(JSON.stringify(r)));`,
+			);
+			const out = lastJson(result);
+			expect(out.code).to.equal(MISSING_DEPENDENCY);
+			expect(out.message).to.include('"pg"');
+		});
+
 		it('puts the supported version range in the install hint for a known peer', () => {
 			const result = runChild(
 				`${CAPTURE}
@@ -141,6 +162,64 @@ describe('#optional dependencies', function optionalDepsSuite() {
 			expect(out.threw).to.equal(true);
 			expect(out.code).to.equal('MODULE_NOT_FOUND');
 			expect(out.message).to.include("'pg-types'");
+		});
+	});
+
+	describe('bundled with `bun build --compile` (Rubber builds its agents this way)', () => {
+		const bun = spawnSync('bun', ['--version'], { encoding: 'utf8' });
+
+		before(function needsBun() {
+			if (bun.error || bun.status !== 0) {
+				this.skip();
+			}
+		});
+
+		// Compile `source` into a standalone executable and run it from an empty
+		// directory, so nothing can be found in a node_modules at run time: only
+		// what the bundler saw and included is there.
+		const compileAndRun = (source) => {
+			const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'yass-bun-'));
+			try {
+				const entry = path.join(dir, 'entry.js');
+				fs.writeFileSync(entry, source);
+				const build = spawnSync(
+					'bun',
+					['build', '--compile', entry, '--outfile', path.join(dir, 'app')],
+					{ encoding: 'utf8' },
+				);
+				expect(build.status, `${build.stdout}\n${build.stderr}`).to.equal(0);
+				const run = spawnSync(path.join(dir, 'app'), [], {
+					cwd: dir,
+					encoding: 'utf8',
+				});
+				return lastJson(run);
+			} finally {
+				fs.rmSync(dir, { recursive: true, force: true });
+			}
+		};
+
+		it('bundles every installed driver, mariadb included', () => {
+			const out = compileAndRun(`
+				const { requireOptional } = require(${JSON.stringify(
+					path.join(rootDir, 'lib', 'optional-dependency.js'),
+				)});
+				const names = ['mariadb', 'pg', 'better-sqlite3', 'node-sql-parser'];
+				const result = {};
+				names.forEach((name) => {
+					try {
+						result[name] = typeof requireOptional(name, { feature: 'x' });
+					} catch (err) {
+						result[name] = err.code || err.message;
+					}
+				});
+				console.log(JSON.stringify(result));
+			`);
+			expect(out).to.deep.equal({
+				mariadb: 'object',
+				pg: 'object',
+				'better-sqlite3': 'function',
+				'node-sql-parser': 'object',
+			});
 		});
 	});
 

@@ -18,7 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Each is loaded on first use; a missing one throws an error with
   `code: 'YASS_MISSING_DEPENDENCY'` naming the package, what needed it and the
   install command (`requireOptional` in `lib/optional-dependency.js`).
-  Requiring `yass-orm` no longer loads `node-sql-parser`.
+  Requiring `yass-orm` no longer loads `node-sql-parser`. Each package is
+  required by its literal name inside a `try`, so a bundler (`bun build
+  --compile`) still bundles the installed ones, `mariadb` included, and builds
+  without the missing ones.
 
 ### Fixed
 
