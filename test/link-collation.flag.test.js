@@ -24,6 +24,7 @@ describe('#Link Column Collation (opt-in source fix)', () => {
 		saved = {
 			linkColumnCollation: config.linkColumnCollation,
 			uuidLinkedIds: config.uuidLinkedIds,
+			stringLinkedIds: config.stringLinkedIds,
 			migrateLinkCollation: config.migrateLinkCollation,
 		};
 	});
@@ -125,6 +126,45 @@ describe('#Link Column Collation (opt-in source fix)', () => {
 			}));
 			expect(schema.fieldMap.user.type).to.equal('int');
 			expect(schema.fieldMap.user.collation).to.equal(undefined);
+		});
+	});
+
+	// Bug 17: with stringLinkedIds a link column is varchar(36), and the flag
+	// used to cover only char(36), so it compared case- and accent-insensitively
+	// against an exact (utf8mb4_bin) t.stringKey id.
+	describe('t.linked (varchar(36) mode, stringLinkedIds:true)', () => {
+		beforeEach(() => {
+			config.stringLinkedIds = true;
+		});
+
+		it('emits NO collation when flag OFF', () => {
+			config.linkColumnCollation = undefined;
+			const schema = convertDefinition(({ types: t }) => ({
+				table: 'test_string_link_off',
+				schema: { user: t.linked('user') },
+			}));
+			expect(schema.fieldMap.user.type).to.equal('varchar(36)');
+			expect(schema.fieldMap.user.collation).to.equal(undefined);
+		});
+
+		it('emits the id collation when flag ON', () => {
+			config.linkColumnCollation = true;
+			const schema = convertDefinition(({ types: t }) => ({
+				table: 'test_string_link_on',
+				schema: { id: t.stringKey, user: t.linked('user') },
+			}));
+			expect(schema.fieldMap.user.type).to.equal('varchar(36)');
+			expect(schema.fieldMap.user.collation).to.equal(CANONICAL_UUID_COLLATION);
+		});
+
+		it('never emits collation on an array link (longtext)', () => {
+			config.linkColumnCollation = true;
+			const schema = convertDefinition(({ types: t }) => ({
+				table: 'test_string_link_array',
+				schema: { users: t.linked('user', { array: true }) },
+			}));
+			expect(schema.fieldMap.users.type).to.equal('longtext');
+			expect(schema.fieldMap.users.collation).to.equal(undefined);
 		});
 	});
 

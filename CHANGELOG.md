@@ -172,6 +172,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **MySQL: `stringLinkedIds` link columns compared case- and
+  accent-insensitively.** They are `varchar(36)`, and `linkColumnCollation`
+  covered only `char(36)`, so a link was `utf8mb4_0900_ai_ci` while the
+  `t.stringKey` id it holds is `utf8mb4_bin`. With `linkColumnCollation` set,
+  they now get the id's collation too; schema-sync changes an existing one
+  directly (it is not deferred to `migrate-link-collation`, which handles
+  `char(36)` only). Without the flag (and for `char(36)` links, as Rubber's)
+  the DDL is unchanged.
 - **A lost connection could run a transaction twice.** A transaction inside
   `retryIfConnectionLost` (`Model.withDbh((dbh) => dbh.transaction(...))`,
   `findOrCreate()` without `tx`) was re-run when the connection dropped, even
