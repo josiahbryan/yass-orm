@@ -189,6 +189,51 @@ describe('#YASS-ORM link styles and the model registry', function linkStylesSuit
 			);
 		});
 
+		// A name is a registry name only if it can't be a path: no '/' or '\',
+		// no leading '.', no model file extension. So a relative or absolute
+		// path link always resolves by path, whatever the registry holds.
+		it('refuses to register a name that looks like a path', () => {
+			[
+				'./char-person',
+				'../char-person',
+				'.char-person',
+				'sub/char-vet',
+				'sub\\char-vet',
+				'/abs/char-person',
+				'char-person.js',
+				'char-person.ts',
+				'char-person.cjs',
+				'char-person.mjs',
+			].forEach((name) => {
+				expect(() => registerModel(name, Publisher), name).to.throw(
+					TypeError,
+					/looks like a path/,
+				);
+				expect(getRegisteredModel(name), name).to.equal(undefined);
+			});
+		});
+
+		it('a path link resolves by path even if the shared registry holds its spelling', async () => {
+			// Another copy of yass sharing the globalThis registry might not
+			// check names; lookups skip path-like names all the same.
+			const registry = globalThis.__YASS_ORM_MODEL_REGISTRY__;
+			registry.set('./char-person', Publisher);
+			try {
+				expect(await CharPet._resolveModelClass('./char-person')).to.equal(
+					CharPerson,
+				);
+			} finally {
+				registry.delete('./char-person');
+			}
+		});
+
+		it('names with dots or dashes inside are still names', async () => {
+			register({ 'auth.user-v2': Publisher });
+			expect(await CharPet._resolveModelClass('auth.user-v2')).to.equal(
+				Publisher,
+			);
+		});
+
 		it('registerModel() takes one name; the registry is on globalThis', () => {
 			const unregister = registerModel('link-publisher', Publisher);
 			try {

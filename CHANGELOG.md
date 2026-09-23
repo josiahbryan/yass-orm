@@ -61,6 +61,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The model registry only answers names that can't be paths**: no `/` or
+  `\`, no leading `.`, no `.js`/`.ts`/`.cjs`/`.mjs` ending. A path link
+  (`t.linked('./user')`) always resolves by path, and `registerModel` throws a
+  `TypeError` for a path-like name (a registered name used to win over a
+  same-spelled relative path, process-wide).
+- (test) `test/config.lazy.test.js` is hermetic: its child processes get an
+  empty `YASS_CONFIG`, so a checkout's own `.yass-orm.js` above `lib/` no
+  longer fails two of its tests.
 - **`lib/obj.js` is split into `lib/model/*`** (cache, hydrate,
   resolve-model, definition-loader, change-hooks, registry), with no behavior
   change: `DatabaseObject` keeps every method as a thin delegate that passes

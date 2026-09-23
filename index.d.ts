@@ -999,7 +999,9 @@ type ModelForName<K> = K extends RegisteredModelName
 
 /**
  * Registers a model under `name`, for `t.linked(name)`. The same model again
- * is a no-op; a different model under a taken name throws.
+ * is a no-op; a different model under a taken name throws, and so does a name
+ * that looks like a path (a `/` or `\`, a leading `.`, or a `.js`/`.ts`/
+ * `.cjs`/`.mjs` ending): a path link always resolves by path.
  * @returns A function that unregisters it
  */
 export declare function registerModel<K extends string>(

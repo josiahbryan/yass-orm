@@ -20,9 +20,13 @@ describe('#YASS-ORM config loaded on first use', function lazyConfigSuite() {
 	let fixtureConfig;
 	let sqliteConfig;
 	let sqliteFile;
+	let emptyConfig;
 
-	// Run `script` in a fresh node with none of the yass env variables set,
-	// from a directory that holds no config file.
+	// Run `script` in a fresh node with none of the yass env variables set
+	// but YASS_CONFIG, from a directory that holds no config file. YASS_CONFIG
+	// defaults to an empty config: without it, findConfig falls back to the
+	// folders above lib/, and a stray .yass-orm.js there (a checkout's own
+	// test config, which sets NODE_ENV) would change what these tests see.
 	const runChild = (script, env = {}) => {
 		const childEnv = { ...process.env };
 		['YASS_CONFIG', 'YASS_ENV', 'NODE_ENV', 'YASS_DEBUG'].forEach((key) => {
@@ -30,7 +34,7 @@ describe('#YASS-ORM config loaded on first use', function lazyConfigSuite() {
 		});
 		const result = spawnSync(process.execPath, ['-e', script], {
 			cwd: tmpDir,
-			env: { ...childEnv, LIB: libDir, ...env },
+			env: { ...childEnv, LIB: libDir, YASS_CONFIG: emptyConfig, ...env },
 			encoding: 'utf8',
 		});
 		return result;
@@ -42,6 +46,8 @@ describe('#YASS-ORM config loaded on first use', function lazyConfigSuite() {
 
 	before(() => {
 		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yass-lazy-config-'));
+		emptyConfig = path.join(tmpDir, 'empty.yass-orm.js');
+		fs.writeFileSync(emptyConfig, 'module.exports = {};');
 		fixtureConfig = path.join(tmpDir, 'fixture.yass-orm.js');
 		fs.writeFileSync(
 			fixtureConfig,

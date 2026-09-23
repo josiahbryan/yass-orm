@@ -774,8 +774,12 @@ const { registerModels } = require('yass-orm');
 registerModels({ user: User, org: Org }); // returns a function that unregisters them
 ```
 
-A registered name wins over a model file of the same name. A name that isn't
-registered falls through to path resolution, unchanged. The registry is on
+A registered name wins over a model file of the same name. Only a name that
+can't be a path is looked up in the registry: one with no `/` or `\`, no
+leading `.` and no `.js`/`.ts`/`.cjs`/`.mjs` ending (`'user'`, `'auth.user'`).
+So `t.linked('./user')` or an absolute path always resolves by path, and
+`registerModel` refuses a path-like name. A name that isn't registered falls
+through to path resolution, unchanged. The registry is on
 `globalThis.__YASS_ORM_MODEL_REGISTRY__`, so two copies of yass share it.
 Registering a different model under a taken name throws. In TypeScript, list
 your models by declaration merging, and the names autocomplete and
@@ -807,6 +811,8 @@ model file is imported.
 
 ---
 - 2026-09-23 (unreleased)
+  - (change) **The model registry only answers names that can't be paths** (step 4's review follow-up). A registered name used to win over a same-spelled relative path link, process-wide: registering `'./user'` redirected every `t.linked('./user')`. Now only a name with no `/` or `\`, no leading `.` and no `.js`/`.ts`/`.cjs`/`.mjs` ending is looked up (`'user'`, `'auth.user'`), `registerModel` throws a `TypeError` for any other, and `getRegisteredModel` returns undefined for one even if another copy of yass put it in the shared Map. Rubber registers no names, so nothing changes there.
+  - (test) **`test/config.lazy.test.js` is hermetic.** Its child processes got no `YASS_CONFIG`, so `findConfig` fell back to the folders above `lib/`, and a checkout's own `.yass-orm.js` (which sets `NODE_ENV`) failed two tests. They now get an empty config by default; the library is unchanged.
   - (fix) **MySQL without `uuidLinkedIds`: `findOrCreate()` on a `t.uuidKey` model returned ANOTHER row** (step 3's known bug 11). `dbh.create()` made an id only under `uuidLinkedIds`, so the insert carried none, the table's trigger made one, and the row was read back with `WHERE id = 0` (the insertId). MySQL compares a char id with 0 as a number, so that matched any row whose id starts with a letter or with zeros. Now the model makes the id with `generateObjectId`, as `create()` always has (a new `generateId` option on `dbh.create`, `findOrCreate`, `createIgnore` and `upsert`: make the id when the fields have none, whatever `uuidLinkedIds` says), and `dbh.create()` / `createIgnore()` **throw** when there is no id to read the new row back by (none given or made, no auto-increment id), instead of returning a wrong row. With `uuidLinkedIds` (Rubber) ids are made exactly as before. On Postgres the row was right (the insert returns the id); it now gets its id from `generateObjectId` too.
   - (fix) **Postgres: `fromSql()` with no arguments failed** with *argument of WHERE must be type boolean* (step 3's known bug 12). The default where clause is now `1=1` instead of `1`; same rows on MySQL.
   - (fix) **Models and schema sync work again after `closeAllConnections()`** (step 3's known bug 13). `lib/utils.js` `handle()` (every model call) and `lib/sync-to-db.js` cached their handle and were never told the pool was closed, so every later call failed with *pool is closed*. `closeAllConnections()` now tells them (a new `onConnectionsClosed(listener)` export in `lib/dbh.js`), and the next call opens a new pool, as `dbh()` already did.
