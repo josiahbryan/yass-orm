@@ -46,6 +46,7 @@ describe('#YASS-ORM globals (the one module that owns the globalThis keys)', () 
 			modelDefinitionCache: '__YASS_ORM_MODEL_DEFINITION_CACHE__',
 			pathCache: '__YASS_ORM_PATH_CACHE__',
 			globalChangeHooks: '__YASS_ORM_GLOBAL_CHANGE_HOOKS__',
+			committedChangeHooks: '__YASS_ORM_COMMITTED_CHANGE_HOOKS__',
 			modelRegistry: '__YASS_ORM_MODEL_REGISTRY__',
 			definitionIndex: '__YASS_ORM_DEFINITION_INDEX__',
 			modelPathIndex: '__YASS_ORM_MODEL_PATH_INDEX__',
@@ -65,6 +66,9 @@ describe('#YASS-ORM globals (the one module that owns the globalThis keys)', () 
 		expect(globals.pathCache).to.equal(globalThis.__YASS_ORM_PATH_CACHE__);
 		expect(globals.globalChangeHooks).to.equal(
 			globalThis.__YASS_ORM_GLOBAL_CHANGE_HOOKS__,
+		);
+		expect(globals.committedChangeHooks).to.equal(
+			globalThis.__YASS_ORM_COMMITTED_CHANGE_HOOKS__,
 		);
 		expect(globals.modelRegistry).to.equal(
 			globalThis.__YASS_ORM_MODEL_REGISTRY__,

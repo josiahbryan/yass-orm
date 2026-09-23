@@ -14,11 +14,64 @@ export type GlobalChangeHookPayload = {
 	 *  and the id field are stripped. Empty when the write was a no-op. */
 	changedFields: Record<string, unknown>;
 	wasCreated: boolean;
+	/** The write's transaction handle, if it was given one. Inside a
+	 *  transaction the hook runs BEFORE the commit (it may still roll back). */
+	tx?: unknown;
 };
 
 export declare function registerGlobalChangeHook(
 	fn: (payload: GlobalChangeHookPayload) => void | Promise<void>,
 ): () => void;
+
+/** What a committed change hook receives: no `tx` (it has ended). */
+export type CommittedChangeHookPayload = Omit<GlobalChangeHookPayload, 'tx'> & {
+	/** True only for `reallyDelete()` (then `changedFields` is empty). */
+	wasDeleted: boolean;
+};
+
+/**
+ * Called once a change is committed: at once outside a transaction, after
+ * COMMIT inside one (in order), never after a rollback. The global hook's
+ * changes plus `reallyDelete()`.
+ */
+export declare function registerCommittedChangeHook(
+	fn: (payload: CommittedChangeHookPayload) => void | Promise<void>,
+): () => void;
+
+export type TransactionEndListener = {
+	/** The root transaction committed. */
+	commit?: () => void | Promise<void>;
+	/** The root transaction rolled back (or never began). */
+	rollback?: () => void | Promise<void>;
+	/** A nested transaction rolled back to its savepoint; the root may still commit. */
+	savepointRollback?: () => void | Promise<void>;
+};
+
+/**
+ * Registers `listener` for how `tx`'s transaction ends. Returns false (and
+ * registers nothing) when `tx` is not a transaction handle.
+ */
+export declare function onTransactionEnd(
+	tx: unknown,
+	listener: TransactionEndListener,
+): boolean;
+
+/**
+ * Per-transaction state: the value under `key` on `tx`'s transaction, made
+ * with `factory()` the first time. Null when `tx` is not a transaction handle.
+ */
+export declare function transactionLocal<T>(
+	tx: unknown,
+	key: unknown,
+	factory: () => T,
+): T | null;
+
+/**
+ * The hidden property holding when an instance's data was read
+ * (`performance.now()` on this process): when the query was issued, or the
+ * transaction's start inside one; for a write, when it completed or committed.
+ */
+export declare const LOADED_AT: unique symbol;
 
 export type JsonifyOptions = {
 	includeLinked?: boolean;
@@ -655,6 +708,9 @@ export interface DatabaseObjectStatic<
 export declare class DatabaseObject {
 	// Common instance props (schema-dependent, so keep loose)
 	id: string;
+
+	/** When this instance's data was read (see `LOADED_AT`). */
+	readonly [LOADED_AT]?: number;
 
 	name?: any;
 

@@ -257,6 +257,31 @@ receive `tx`. A hook that performs its own DB writes and does not forward `tx`
 will write outside the transaction — those writes commit even if the
 transaction rolls back.
 
+Inside a transaction, a global change hook (`registerGlobalChangeHook`) runs
+**before** the commit. To act on a change once it is committed, register a
+**committed change hook**: it gets the same changes (without `tx`), plus
+`reallyDelete()` (`wasDeleted: true`, empty `changedFields`), at once outside a
+transaction, after `COMMIT` inside one (in order), and never after a rollback.
+A change inside a savepoint that rolled back is still reported.
+
+```js
+const { registerCommittedChangeHook, onTransactionEnd, transactionLocal } = require('yass-orm');
+
+registerCommittedChangeHook(({ modelName, id, wasCreated, wasDeleted }) => {
+  // e.g. publish an invalidation for (modelName, id)
+});
+```
+
+`onTransactionEnd(tx, { commit, rollback, savepointRollback })` and
+`transactionLocal(tx, key, factory)` are exported from the package root too;
+both return false / null when `tx` is not a transaction handle.
+
+Every instance carries a hidden `LOADED_AT` stamp (a symbol exported from the
+package root; `performance.now()` on this process): when the read behind its
+data was issued (the transaction's start inside one), or when a write through
+it completed (committed, inside a transaction). A read older than a cached
+instance's stamp doesn't overwrite that instance's values.
+
 One known limitation: `inflate` populates the per-class identity cache, so rows
 created inside a transaction that later rolls back leave cached instances for
 ids that no longer exist. Call `Model.clearCache()` after a rollback if you
@@ -996,6 +1021,13 @@ await OrgModel.create({ name: 'Acme', owner: user }); // typed fields; a link ta
   - (not changed) **`mariadb` stays at 2.5.5.** Run against the MySQL suite, `mariadb` 3.5.4 fails 81 of 1,450 tests: 3.x keeps connection state in private class fields, which the methods `dbh` bolts onto the connection can't reach (*Cannot read private member*); DECIMAL columns come back as strings and BIGINT as `BigInt`; its `timezone` option now converts dates (6 hours off in the tests); and several pool-option tests stub 2.x internals. It needs its own step, with Rubber's suite.
   - (test) `test/optional-deps.test.js` (17 tests): the manifest; `requireOptional`; each dialect with its driver installed; and, in child processes where `test/fixtures/block-modules.js` makes packages unresolvable, requiring `yass-orm` with none of the three (none gets loaded), each missing package named by the dialect or feature that needs it, and on MySQL a schema sync (`bin/schema-sync`) and a model create/read/delete with none of them installed. 10 of the 17 fail on 2.x.
 - 2026-09-23 (unreleased)
+  - (feat) **Y1 of the bus design** (Tessera's `docs/2026-09-23-bus-and-realtime-design.md`, 7.4), for a cache kept in step across processes. See *Transactions*.
+    - `onTransactionEnd` and `transactionLocal` are exported from the package root (they were only in `lib/transactions.js`), typed in `index.d.ts`.
+    - **`registerCommittedChangeHook(fn)`**: an after-COMMIT change hook, added next to `registerGlobalChangeHook`, whose timing is unchanged (inside a transaction it still runs before the commit, which Rubber depends on). A committed hook gets the same changes, without `tx` and with `wasDeleted`: at once outside a transaction; inside one, queued per transaction (`transactionLocal`) and run in order after `COMMIT`, after the transaction's instances are published to the shared cache; never after a rollback. Hooks run one at a time; one that throws is logged. Its list is on `globalThis` (`__YASS_ORM_COMMITTED_CHANGE_HOOKS__`), like the global hooks'.
+    - **`reallyDelete()` fires the committed hooks only** (`wasDeleted: true`, empty `changedFields`), after the `DELETE`. It still fires neither the global hooks nor `afterChangeHook`: Rubber's `afterChangeHook` broadcasts the instance as changed, so firing it would change behavior. (This departs from the design's item 3, which put deletes on the global hook; registering a committed hook is the opt-in.)
+    - **`LOADED_AT`** (`Symbol.for('yass-orm.loadedAt')`, `lib/model/loaded-at.js`): a non-enumerable stamp on every inflated instance, `performance.now()` when the read was issued (`get`, `search`, `searchOne`, `fromSql` take it before the query; other paths when they inflate), or the transaction's start inside one (`transactionStartedAt`, new in `lib/transactions.js`). A write through an instance stamps it when it completes, or at commit inside a transaction (`TxInstanceCache.publish`). New instances are stamped before `setCachedId` sees them, and `inflate` returns a cached instance untouched when its stamp is later than the read's, so a slow old read doesn't overwrite a fresher one. The default cache's `_freshenInstance` copies the stamp; an override (Rubber's `setCachedId` copies fields only) keeps the older stamp, which only means an older read may still overwrite, as before.
+    - `index.d.ts`: `tx?: unknown` on `GlobalChangeHookPayload`, `CommittedChangeHookPayload`, `registerCommittedChangeHook`, `onTransactionEnd`, `TransactionEndListener`, `transactionLocal`, `LOADED_AT`, and `[LOADED_AT]?: number` on `DatabaseObject`.
+  - (test) `test/change-hooks.committed.test.js` (live, MySQL and in `npm run test:postgres`: the exports, committed hooks outside and inside a transaction, after a rollback and a savepoint rollback, a throwing hook, `reallyDelete()`, and `LOADED_AT` on reads, writes, older reads and inside a transaction) and `test-d/change-hooks.test-d.ts`; red first. The global hook suite and the characterization suites are unchanged and green.
   - (fix) **MySQL: `stringLinkedIds` link columns compared case- and accent-insensitively** (bug 17 of the modernization plan; found by `@tessera/db`'s review). They are `varchar(36)`, and `linkColumnCollation` (`resolveLinkColumnCollation` in `lib/def-to-schema.js`) covered only `char(36)`, so a link was `utf8mb4_0900_ai_ci` while the `t.stringKey` id it holds is `utf8mb4_bin`: a link matched an id that differs only in case. With `linkColumnCollation` set, a `varchar(36)` link column now gets the same collation as a `char(36)` one. Schema-sync changes an existing one directly: the deferral for `migrate-link-collation` stays scoped to `char(36)`, which is all that runner handles. Without the flag, and for `char(36)` links under `uuidLinkedIds` (Rubber's), the DDL is unchanged. Array links (`longtext`) never get one. Postgres compares exactly already and ignores the collation.
   - (test) `test/link-collation.flag.test.js` (the `varchar(36)` link, flag off and on, and an array link) and `test/schemaSync.stringLinkCollation.test.js` (live, MySQL and in `npm run test:postgres`: an existing inexact link column is changed once the flag is on, a re-sync applies no DDL, a case variant of the id no longer matches); red first.
   - (fix) **A lost connection could run a transaction twice** (bug 16 of the modernization plan; found by `@tessera/db`'s review). A transaction run inside `retryIfConnectionLost` (`Model.withDbh((dbh) => dbh.transaction(...))`, and `findOrCreate()` with no `tx`, which opens its own) was re-run from the start when the connection dropped at any point, including after `COMMIT` was sent but before its reply came back: a double apply when the commit had landed. Now an error from a transaction that got past `BEGIN` carries `transactionBegan: true`, and `retryIfConnectionLost` never retries it; the error is surfaced. The same holds for a callback in which a transaction committed and a later statement then lost the connection (retrying re-runs the whole callback): `retryIfConnectionLost` tracks, per attempt (`AsyncLocalStorage`, `runInRetryScope` in `lib/transactions.js`), whether any transaction got past `BEGIN` in it, including under a nested `retryIfConnectionLost`. A connection lost while leasing the connection or on `BEGIN` is still retried (nothing has run). `dbh.transaction({ maxRetries })` is unchanged (it retries deadlocks and serialization failures only, which the server rolled back).

@@ -36,6 +36,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`registerCommittedChangeHook(fn)`**: a change hook that runs once the
+  change is committed (after `COMMIT` inside a transaction, never after a
+  rollback), with `wasDeleted`; `reallyDelete()` fires it (and still fires no
+  other hook). `registerGlobalChangeHook`'s timing is unchanged (before the
+  commit), and its payload type now has `tx`.
+- **`onTransactionEnd` and `transactionLocal`** are exported from the package
+  root, with types.
+- **`LOADED_AT`**: a hidden stamp on every instance, when the read behind its
+  data was issued (the transaction's start inside one) or when a write through
+  it completed or committed. `inflate` doesn't overwrite a cached instance
+  with data from an older read.
 - **`defineModel({ table, prefix, schema: (t) => ({ ... }) })`**: a model
   whose TypeScript types are inferred from its schema (fields, nullability,
   links as the linked model's instance, a subclass's methods, `create()`'s
