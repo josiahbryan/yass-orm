@@ -21,6 +21,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hold them, and exported `prefixedId()` / `timeOrderedId()`. VARCHAR(36) on
   Postgres, CHAR(36) on MySQL/MariaDB, TEXT on SQLite.
 
+- (test) **Characterization tests for the model layer** (no library change):
+  `test/obj.characterize.*.test.js` pin hydration, links (incl. the
+  `withRelativeModelLinks` shape), `jsonify()`, the instance cache inside and
+  outside transactions, `findOrCreate`/`search`/`searchOne`/`fromSql`,
+  `set()`, a Rubber-style subclass's override call order (all through `this`),
+  and the public contract (exports, deep imports, bin paths, `globalThis`
+  keys). The database-backed ones also run in `npm run test:postgres`. Six
+  bugs found are left as skipped `known bug: …` tests (see the README's
+  Recent changes).
+
 ### Changed
 
 - **`finder.js` is quiet by default.** Its per-`find()` diagnostic logs (the
