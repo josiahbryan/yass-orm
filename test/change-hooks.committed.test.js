@@ -284,6 +284,77 @@ describe('#Y1: committed change hooks, transaction exports, LOADED_AT', function
 			expect(cached[LOADED_AT]).to.equal(stamp + 1);
 		});
 
+		it('a read is stamped when its query was issued, so a write that lands while it is in flight is kept', async () => {
+			// Every read the model makes pauses once its rows are back, so a write
+			// can complete between the query and the inflate.
+			let whileInFlight;
+			const pauseAfterRead = (read) =>
+				async function paused(...args) {
+					const rows = await read.apply(this, args);
+					const during = whileInFlight;
+					whileInFlight = undefined;
+					if (during) await during();
+					return rows;
+				};
+			class Racing extends Model {
+				static retryIfConnectionLost(callback) {
+					return super.retryIfConnectionLost((conn) => {
+						const racing = Object.create(conn);
+						['get', 'search', 'roQuery'].forEach((method) => {
+							racing[method] = pauseAfterRead(conn[method]);
+						});
+						return callback(racing);
+					});
+				}
+			}
+			const reads = [
+				['get', (id) => Racing.get(id)],
+				['search', (id) => Racing.searchOne({ id })],
+				[
+					'fromSql',
+					(id) => Racing.fromSql('id = :id', { id }).then(([r]) => r),
+				],
+			];
+			// eslint-disable-next-line no-restricted-syntax
+			for (const [name, read] of reads) {
+				// eslint-disable-next-line no-await-in-loop
+				const cached = await Racing.create({ name: 'before' });
+				whileInFlight = () => cached.patch({ name: `written during ${name}` });
+				// eslint-disable-next-line no-await-in-loop
+				const result = await read(cached.id);
+				expect(whileInFlight, name).to.equal(undefined);
+				expect(result, name).to.equal(cached);
+				expect(cached.name, name).to.equal(`written during ${name}`);
+			}
+		});
+
+		it('publishing a committed write onto a cached instance carries its stamp', async () => {
+			const row = await Model.create({ name: 'shared' });
+			Model.clearCache();
+			const shared = await Model.get(row.id);
+			const beforeTx = performance.now();
+			let beforeCommit;
+			await pool.transaction(async (tx) => {
+				const inTx = await Model.get(row.id, { tx });
+				// The transaction's own instance, not the shared one.
+				expect(inTx).to.not.equal(shared);
+				await inTx.patch({ name: 'committed' }, { tx });
+				beforeCommit = performance.now();
+			});
+			expect(await Model.getCachedId(row.id)).to.equal(shared);
+			expect(shared.name).to.equal('committed');
+			expect(shared[LOADED_AT]).to.be.at.least(beforeCommit);
+
+			// So a read issued before that commit can't put the old row back.
+			await Model.inflate(
+				{ id: row.id, name: 'shared', isDeleted: 0 },
+				undefined,
+				undefined,
+				{ loadedAt: beforeTx },
+			);
+			expect(shared.name).to.equal('committed');
+		});
+
 		it("inside a transaction a read carries the transaction's start; a row it wrote is stamped at commit", async () => {
 			const existing = await Model.create({ name: 'pre' });
 			Model.clearCache();
