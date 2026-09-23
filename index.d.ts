@@ -423,6 +423,12 @@ export interface DatabaseObjectInstanceMethods {
 	afterCreateHook(...args: any[]): Promise<any>;
 
 	afterChangeHook(...args: any[]): Promise<any>;
+
+	/**
+	 * Called when the save that `set()` schedules fails (nothing awaits it).
+	 * Override to route the error; the default logs it. A throw is logged.
+	 */
+	onAutoSaveError(error: unknown): void | Promise<void>;
 }
 
 /**
@@ -694,6 +700,12 @@ export declare class DatabaseObject {
 	afterCreateHook(...args: any[]): Promise<any>;
 
 	afterChangeHook(...args: any[]): Promise<any>;
+
+	/**
+	 * Called when the save that `set()` schedules fails (nothing awaits it).
+	 * Override to route the error; the default logs it. A throw is logged.
+	 */
+	onAutoSaveError(error: unknown): void | Promise<void>;
 
 	// ==== Static API (polymorphic on subclasses) ====
 	static schema(): SchemaDefinition;

@@ -44,6 +44,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Models made straight from `loadDefinition()` shared one instance-cache
+  bucket** (all are named `ModelClass`), so they could return each other's
+  instances for the same id. The bucket is now `<class name>:<table>`.
+- **Reads and writes inside a transaction went into the shared instance cache**
+  before commit, so a rollback left uncommitted rows servable through
+  `allowCached`. They are now held per transaction, published through
+  `setCachedId` on commit (one only read, only if nothing is cached for its
+  id), and never published on rollback (an id written through an instance from
+  outside the transaction is evicted); `remove({ tx })` no longer evicts before
+  the transaction ends. New exports in `lib/transactions.js`:
+  `onTransactionEnd(tx, listener)` and `transactionLocal(tx, key, factory)`.
+- **The link-resolution path cache ignored the linking model's folder,** so the
+  same relative name in two folders resolved to one file.
+- **An already-inflated linked instance was re-fetched** because the guard meant
+  to keep it could never be true.
+- **A failed `set()` auto-save crashed the process** (an unhandled rejection).
+  It now goes to a new `onAutoSaveError(error)` hook, which logs by default:
+  **a crash becomes a logged error.**
+
 - **Postgres datetimes keep milliseconds and no longer depend on the process
   time zone.** Writes send the full ISO instant (MySQL still gets whole seconds:
   `DATETIME` without fsp rounds); reads keep the driver's `Date` rather than a

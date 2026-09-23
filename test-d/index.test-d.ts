@@ -200,3 +200,12 @@ expectAssignable<TriggerEvent>('insert');
 expectAssignable<TriggerEvent>('update');
 expectAssignable<TriggerEvent>('delete');
 expectError<TriggerEvent>('select');
+
+// set()'s auto-save errors go to onAutoSaveError, which a model can override.
+class AutoSaveModel extends loadDefinition('./defs/my-model') {
+	async onAutoSaveError(error: unknown) {
+		console.warn(error);
+	}
+}
+declare const autoSaving: AutoSaveModel;
+expectType<Promise<void>>(autoSaving.onAutoSaveError(new Error('x')));
