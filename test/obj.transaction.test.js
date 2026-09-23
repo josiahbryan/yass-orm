@@ -27,8 +27,8 @@ describe('#YASS-ORM Model-level transactions ({ tx })', function txSuite() {
 	// Thrown to force a rollback once in-transaction assertions have been captured.
 	const ROLLBACK = new Error('intentional rollback');
 
-	const nodeTable = 'test.yass_tx_node';
-	const edgeTable = 'test.yass_tx_edge';
+	const nodeTable = 'yass_tx_node';
+	const edgeTable = 'yass_tx_edge';
 
 	const rows = async (sql, args) =>
 		Array.from((await conn.pquery(sql, args)) || []);

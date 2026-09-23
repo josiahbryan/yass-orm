@@ -15,10 +15,10 @@ describe('#YASS-ORM instance cache scope', function cacheScopeSuite() {
 	this.timeout(30000);
 
 	const tables = {
-		a: 'test.yass_cache_a',
-		b: 'test.yass_cache_b',
-		tx: 'test.yass_cache_tx',
-		self: 'test.yass_cache_self',
+		a: 'yass_cache_a',
+		b: 'yass_cache_b',
+		tx: 'yass_cache_tx',
+		self: 'yass_cache_self',
 	};
 
 	// Both are anonymous `class extends` returned by loadDefinition(), so both

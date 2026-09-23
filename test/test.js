@@ -339,7 +339,7 @@ describe('#YASS-ORM', () => {
 
 		const result = await NewClass.withDbh((dbh) =>
 			dbh.pquery(
-				`show indexes from test.yass_test1 where key_name = 'testJsonIndex'`,
+				`show indexes from yass_test1 where key_name = 'testJsonIndex'`,
 			),
 		);
 
