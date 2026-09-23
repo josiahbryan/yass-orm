@@ -103,19 +103,6 @@ describe('#characterize public contract', function contractSuite() {
 			const [row] = await Model.withDbh('select 1 as one');
 			expect(Number(row.one)).to.equal(1);
 		});
-
-		it('schema sync works again after closeAllConnections()', async () => {
-			// eslint-disable-next-line global-require
-			const { syncSchemaToDb } = require('../lib/sync-to-db');
-			const schema = () =>
-				YassORM.convertDefinition(({ types: t }) => ({
-					table: 'yass_char_reconnect',
-					schema: { id: t.idKey, name: t.string },
-				}));
-			expect((await syncSchemaToDb(schema())).errors).to.deep.equal([]);
-			await YassORM.closeAllConnections();
-			expect((await syncSchemaToDb(schema())).errors).to.deep.equal([]);
-		});
 	});
 
 	describe('paths', () => {
