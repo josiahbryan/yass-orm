@@ -33,6 +33,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Postgres keeps sized `varchar(n)` types (was TEXT); type generation types a
   `t.stringKey` id as `z.string()` and sized varchars as `string`.
 
+### Security
+
+- **schema-sync no longer puts the database password on a command line or in
+  the log.** `match_ratio()` was installed by shelling out to the `mysql` CLI
+  with `--password=<pass>` (built from config values, so open to shell
+  injection) and the command, password included, was printed. It is now
+  created over the existing driver connection: no shell, no temp file. Same
+  function body; still skipped when it already exists (the check is now
+  parameterized). `uploadMatchRatioFunction()` returns its promise and
+  `bin/schema-sync` awaits it, so a failed install fails the run instead of
+  becoming an unhandled rejection.
+
 ### Fixed
 
 - **Schema-sync column comparator never converged: no-op `ALTER TABLE ... CHANGE

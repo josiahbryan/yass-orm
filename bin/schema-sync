@@ -11,7 +11,7 @@ async function main() {
 	const sourceFiles = Array.from(process.argv).slice(2);
 
 	// Add our match_ratio() function for use in finder.js
-	syncUtil.uploadMatchRatioFunction();
+	await syncUtil.uploadMatchRatioFunction();
 
 	// Convert each definition to a schema using
 	const results = await syncUtil.promiseMap(
