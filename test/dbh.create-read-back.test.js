@@ -86,9 +86,37 @@ describe('dbh.create() reads back its own row', function suite() {
 			).to.equal('mine');
 			return;
 		}
-		const error = await rejectionOf(conn.createIgnore(table, { name: 'mine' }));
-		expect(error, 'createIgnore() resolved').to.be.an('error');
-		expect(error.message).to.include('no id to read the new row back by');
+		// MySQL reports a skipped duplicate like an insert (affectedRows 1,
+		// insertId 0), so with no id to read back by, createIgnore() cannot
+		// tell them apart: it answers null (nothing it can return), as for a
+		// conflict, never another row.
+		expect(await conn.createIgnore(table, { name: 'mine' })).to.equal(null);
+	});
+
+	it('createIgnore() on an auto-increment table: null on a conflict, the row otherwise', async () => {
+		const autoTable = 'yass_create_ignore_auto';
+		const q = quoteTable(autoTable);
+		await conn.pquery(`DROP TABLE IF EXISTS ${q}`);
+		await conn.pquery(
+			isPostgres()
+				? `CREATE TABLE ${q} (id SERIAL PRIMARY KEY, name VARCHAR(64) UNIQUE)`
+				: `CREATE TABLE ${q} (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(64) UNIQUE)`,
+		);
+		const first = await conn.createIgnore(
+			autoTable,
+			{ name: 'dup' },
+			{ conflictColumns: ['name'] },
+		);
+		expect(first).to.include({ name: 'dup' });
+		expect(Number(first.id)).to.be.above(0);
+		expect(
+			await conn.createIgnore(
+				autoTable,
+				{ name: 'dup' },
+				{ conflictColumns: ['name'] },
+			),
+		).to.equal(null);
+		await conn.pquery(`DROP TABLE ${q}`);
 	});
 
 	it('generateId: true makes the id with idGenerator, without uuidLinkedIds', async () => {

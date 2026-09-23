@@ -1122,3 +1122,98 @@ export declare function isUniqueViolation(err: unknown): boolean;
  * across all supported dialects. Broader than `isUniqueViolation`.
  */
 export declare function isConstraintError(err: unknown): boolean;
+
+/** A dialect (lib/dialects/*): what the SQL helpers need of one. */
+export interface SqlDialect {
+	readonly name: string;
+	quoteIdentifier(name: string): string;
+}
+
+/** What the SQL helpers take: a handle, a transaction, or a dialect. */
+export type SqlTarget = DbHandle | SqlDialect | { dialect: SqlDialect };
+
+/** `[sql, params]` for readBack(). */
+export type SqlStatement = [sql: string, params?: AnyRecord];
+
+export type IntervalUnit =
+	| 'second'
+	| 'minute'
+	| 'hour'
+	| 'day'
+	| 'week'
+	| 'month'
+	| 'year'
+	| 'seconds'
+	| 'minutes'
+	| 'hours'
+	| 'days'
+	| 'weeks'
+	| 'months'
+	| 'years';
+
+/**
+ * SQL helpers (`lib/sql-helpers.js`): the patterns raw SQL repeats that MySQL
+ * and Postgres spell differently. Fragments return SQL to put in a query;
+ * runners run the statements. See the README's "SQL helpers".
+ */
+export interface SqlHelpers {
+	/** `IN (:name_0, ...)` and its params; an empty list matches nothing. */
+	inList(
+		name: string,
+		values: Iterable<unknown>,
+	): { sql: string; params: AnyRecord };
+	/** The database clock, in UTC. */
+	now(db: SqlTarget): string;
+	/** `expr` plus `amount` (SQL: a number or a `:param`) `unit`s. */
+	addInterval(
+		db: SqlTarget,
+		expr: string,
+		amount: string | number,
+		unit: IntervalUnit,
+	): string;
+	/** `expr` minus `amount` `unit`s. */
+	subtractInterval(
+		db: SqlTarget,
+		expr: string,
+		amount: string | number,
+		unit: IntervalUnit,
+	): string;
+	/** `a = b` where NULL equals NULL. */
+	nullSafeEqual(db: SqlTarget, a: string, b: string): string;
+	/** `a <> b` where NULL differs from any value. */
+	nullSafeNotEqual(db: SqlTarget, a: string, b: string): string;
+	/** An ORDER BY term that puts NULLs last. */
+	nullsLast(
+		db: SqlTarget,
+		expr: string,
+		direction?: 'ASC' | 'DESC' | 'asc' | 'desc',
+	): string;
+	/** COUNT(expr) that reads back as a JS number. */
+	count(db: SqlTarget, expr?: string): string;
+	/** The row-lock clause for a SELECT ('' on SQLite). */
+	forUpdate(
+		db: SqlTarget,
+		opts?: { skipLocked?: boolean; noWait?: boolean },
+	): string;
+	/** Locks `key` until the transaction ends (the advisory-lock replacement). */
+	lockKey(tx: DbHandle, key: string): Promise<void>;
+	/** Insert, or update where `where` holds. */
+	upsertWhere(
+		db: DbHandle,
+		table: string,
+		args: {
+			values: AnyRecord;
+			conflictColumns: string[];
+			update: string[] | Record<string, string>;
+			where?: string;
+			params?: AnyRecord;
+		},
+	): Promise<{ inserted: boolean; updated: boolean }>;
+	/** A write and a read in one transaction (the RETURNING replacement). */
+	readBack<Row = AnyRecord>(
+		db: DbHandle,
+		args: { write: SqlStatement; read: SqlStatement; readFirst?: boolean },
+	): Promise<{ rows: Row[]; affectedRows: number }>;
+}
+
+export declare const sqlHelpers: SqlHelpers;

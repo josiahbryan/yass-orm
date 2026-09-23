@@ -392,5 +392,18 @@ describe('createIgnore and upsert (atomic at-most-once / on-dup primitives)', ()
 				isConstraintError({ code: 'SQLITE_CONSTRAINT_CHECK' }),
 			).to.equal(true);
 		});
+
+		it('Postgres (node-postgres) puts the SQLSTATE on .code, as yass wraps it', () => {
+			// pg's DatabaseError: `code` is the SQLSTATE; there is no `sqlState`.
+			expect(isUniqueViolation({ code: '23505' })).to.equal(true);
+			expect(isUniqueViolation({ cause: { code: '23505' } })).to.equal(true);
+			expect(isConstraintError({ code: '23505' })).to.equal(true);
+			// not_null_violation: a constraint error, not a unique one.
+			expect(isUniqueViolation({ code: '23502' })).to.equal(false);
+			expect(isConstraintError({ code: '23502' })).to.equal(true);
+			// Other Postgres errors (undefined_column) are neither.
+			expect(isUniqueViolation({ code: '42703' })).to.equal(false);
+			expect(isConstraintError({ code: '42703' })).to.equal(false);
+		});
 	});
 });

@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **SQL helpers: `sqlHelpers`** (`lib/sql-helpers.js`): `inList`, `now`,
+  `addInterval` / `subtractInterval`, `nullSafeEqual` / `nullSafeNotEqual`,
+  `nullsLast`, `count`, `forUpdate`, `lockKey` (in place of
+  `pg_advisory_xact_lock`), `upsertWhere` (upsert with a condition) and
+  `readBack` (in place of `RETURNING`), for raw SQL that runs on MySQL and
+  Postgres alike. The per-dialect SQL is on the dialect classes.
+- **`Model.find()` works on Postgres**: quoting, `IFNULL`, `LIMIT` and the
+  `isDeleted` literal come from the dialect; Postgres takes finder's `?`
+  placeholders. The SQL on MySQL is unchanged. `find({ q })` throws a clear
+  error where `match_ratio()` isn't installed.
+
 - **Lazy-reference links: `t.linked(() => Model)`**, the new default link
   style. A real import (typed, safe for import cycles, bundleable by Bun),
   called when the link is first read. It may return the module or a promise
@@ -61,6 +72,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- (refactor) One connection wrapper in `BaseDialect`
+  (`createConnectionWrapper`, `compileQuery`) for Postgres and SQLite, which
+  had copies of it.
 - **The model registry only answers names that can't be paths**: no `/` or
   `\`, no leading `.`, no `.js`/`.ts`/`.cjs`/`.mjs` ending. A path link
   (`t.linked('./user')`) always resolves by path, and `registerModel` throws a
@@ -112,6 +126,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Postgres: a `Date` passed to raw `pquery` was written as a naive UTC wall
+  clock**, which a `TIMESTAMPTZ` column read in the session's time zone. It is
+  now sent as the ISO instant.
+- **`isUniqueViolation` / `isConstraintError` missed Postgres errors**
+  (node-postgres puts the SQLSTATE on `.code`).
+- **MySQL: `dbh.createIgnore()` with no id threw on a duplicate** (a
+  regression from the `findOrCreate` fix below): it returns null again.
 - **MySQL without `uuidLinkedIds`: `findOrCreate()` on a `t.uuidKey` model
   returned ANOTHER row.** It inserted no id (the table's trigger made one) and
   read the row back with `WHERE id = 0`, which MySQL compares as a number. The

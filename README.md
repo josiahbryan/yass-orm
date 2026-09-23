@@ -502,6 +502,8 @@ All high-level ORM methods work without changes:
 - `.search({ field: value })`
 - `.searchOne({ field: value })`
 - `.fromSql('field = :value', { value })`
+- `.find({ field: value, $sort, $limit, $skip })` (except `{ q }`, whose
+  ranking uses `match_ratio()`, a stored function yass installs on MySQL only)
 - `.get(id)`
 - `.create({ ... })`
 - `.patch({ ... })`
@@ -744,6 +746,74 @@ The older flags still work as aliases: `DEBUG_MODEL_CACHE_HITS=true` (`cache`),
 `YASS_DEBUG_PATH_RESOLVER` (`path-resolver`), `YASS_DEBUG_MODEL_INDEX`
 (`model-index`) and `YASS_DEBUG_DEFINITION_INDEX` (`definition-index`).
 
+## SQL helpers (`sqlHelpers`)
+
+For raw SQL that must run on MySQL and Postgres alike: the patterns that
+differ, written once. Each helper takes `db`, a handle (`await dbh()`), a
+transaction's `tx`, or a dialect. The per-dialect SQL lives on the dialect
+classes (`lib/dialects/`); `lib/sql-helpers.js` is the one place to reach it.
+
+```js
+const { sqlHelpers: sql } = require('yass-orm'); // or require('yass-orm/lib/sql-helpers')
+```
+
+| Helper | Returns | MySQL | Postgres |
+| --- | --- | --- | --- |
+| `inList(name, values)` | `{ sql, params }` | `IN (:name_0, :name_1)`; `IN (NULL)` (matches nothing) when empty | same |
+| `now(db)` | SQL | `UTC_TIMESTAMP()` (yass writes UTC; `NOW()` is in the session zone) | `now()` |
+| `addInterval(db, expr, amount, unit)` / `subtractInterval` | SQL | `DATE_ADD(expr, INTERVAL amount UNIT)` | `(expr + make_interval(mins => amount))` |
+| `nullSafeEqual(db, a, b)` / `nullSafeNotEqual` | SQL | `(a <=> b)` / `NOT (a <=> b)` | `IS [NOT] DISTINCT FROM` |
+| `nullsLast(db, expr, direction)` | ORDER BY term | `expr IS NULL, expr ASC` | `expr ASC NULLS LAST` |
+| `count(db, expr = '*')` | SQL that reads back as a JS number | `COUNT(*)` | `CAST(COUNT(*) AS INTEGER)` (pg returns bigint as a string) |
+| `forUpdate(db, { skipLocked, noWait })` | the row-lock clause | `FOR UPDATE [SKIP LOCKED \| NOWAIT]` | same |
+| `lockKey(tx, key)` | runs | a row of `yass_locks`, `SELECT ... FOR UPDATE` | same (in place of `pg_advisory_xact_lock`) |
+| `upsertWhere(db, table, { values, conflictColumns, update, where, params })` | `{ inserted, updated }` | INSERT; on a unique violation, `UPDATE ... WHERE key AND (where)` | same |
+| `readBack(db, { write, read, readFirst })` | `{ rows, affectedRows }` | the write and the read in one transaction | same (in place of `RETURNING`) |
+
+`amount` in the interval helpers is SQL (a number or a `:param`); units are
+second, minute, hour, day, week, month, year. `update` in `upsertWhere` is
+a list of columns to set from `values`, or `{ column: 'SQL' }` (raw SQL, like
+`dbh.upsert`'s `onDuplicate`). SQLite gets the same helpers where it has an
+equivalent (`forUpdate` is empty and `lockKey` does nothing there: one
+writer at a time).
+
+```js
+const conn = await dbh();
+const { sql: ids, params } = sql.inList('ids', userIds);
+await conn.pquery(`SELECT * FROM users WHERE id ${ids}`, params);
+
+// A lock that lasts until the transaction ends.
+await conn.transaction(async (tx) => {
+	await sql.lockKey(tx, `contact-change:${user}`);
+	// ...
+});
+
+// INSERT ... ON CONFLICT (key) DO UPDATE ... WHERE, on both.
+await sql.upsertWhere(conn, 'attempt_limits', {
+	values: { id, key, failures: 1 },
+	conflictColumns: ['key'],
+	update: { failures: 'failures + 1' },
+	where: `lockedUntil IS NULL OR lockedUntil <= ${sql.now(conn)}`,
+});
+
+// DELETE ... RETURNING value, on both.
+const { rows } = await sql.readBack(conn, {
+	readFirst: true, // read (with a row lock), then write
+	read: ['SELECT value FROM verifications WHERE identifier = :id', { id }],
+	write: ['DELETE FROM verifications WHERE identifier = :id', { id }],
+});
+```
+
+Notes:
+
+- `lockKey` inserts the key's row outside the transaction (so two
+  transactions taking a new key don't deadlock) and never deletes it: use keys
+  from a bounded or slowly growing set. Keys over 191 characters are hashed.
+  It must run inside a transaction.
+- `upsertWhere` is two statements. A unique violation on another key than
+  `conflictColumns` updates nothing. `updated` means the condition held (the
+  row may be unchanged).
+
 ## Linking models (`t.linked`)
 
 `t.linked(target)` takes one of three kinds of target, and dispatches on its
@@ -811,6 +881,12 @@ model file is imported.
 
 ---
 - 2026-09-23 (unreleased)
+  - (feat) **SQL helpers: `sqlHelpers`** (`lib/sql-helpers.js`, step 7 of the modernization plan), for raw SQL that runs on MySQL and Postgres alike: `inList`, `now`, `addInterval` / `subtractInterval`, `nullSafeEqual` / `nullSafeNotEqual`, `nullsLast`, `count` (a JS number on both), `forUpdate`, `lockKey` (a transaction-scoped lock on a name, in place of `pg_advisory_xact_lock`), `upsertWhere` (upsert with a condition) and `readBack` (a write and a read in one transaction, in place of `RETURNING`). The per-dialect SQL is on the dialect classes. See *SQL helpers*. Each is tested live on MySQL and Postgres (`test/sql-helpers.test.js`) and at the SQL level on all three dialects.
+  - (feat) **`Model.find()` works on Postgres.** `lib/finder.js` took MySQL's backticks, `IFNULL`, `LIMIT skip, limit` and the `isDeleted = 0` literal as given; they now come from the dialect (`quoteIdentifierOnce`, `ifNullSql`, `concatSql`, `limitSql`, `toBooleanLiteral`), and the Postgres dialect turns the `?` placeholders finder and its hooks write into `$1, $2, ...` (only with an array of values and no `$N` already in the SQL). The count for `total` is aliased with a quoted name, so Postgres keeps its case. The SQL on MySQL is unchanged. `find({ q })` throws a clear error where `match_ratio()` isn't installed (every dialect but MySQL). The hooks' `dbQuote` quotes for the dialect.
+  - (refactor) **One connection wrapper in `BaseDialect`** (`createConnectionWrapper`, `compileQuery`): the Postgres and SQLite wrappers were copies of each other (`query` taking mariadb's options object, `pquery`, `roQuery`, `escapeId`, `escape`, `end`, `close`); each now gives only how it runs one statement. MySQL's mariadb pool, and what `dbh` bolts on, are unchanged.
+  - (fix) **Postgres: a `Date` passed to raw `pquery` was written as a naive `YYYY-MM-DD HH:MM:SS` UTC wall clock**, which a `TIMESTAMPTZ` column reads in the session's time zone (so off by hours when the server's zone isn't UTC). The Postgres dialect now sends the ISO instant (with milliseconds). Models already did.
+  - (fix) **`isUniqueViolation` / `isConstraintError` missed Postgres errors**: node-postgres puts the SQLSTATE on `.code`, not `.sqlState`.
+  - (fix) **MySQL: `dbh.createIgnore()` with no id threw on a duplicate** after the bug-11 fix: MySQL reports a skipped duplicate as `affectedRows: 1, insertId: 0`, so there was no id to read back. With no id given or reported it returns null, as for a conflict (it never reads back `WHERE id = 0`). Found writing `upsertWhere`: on MySQL (whose driver counts found rows) a duplicate looks like an insert, so `createIgnore` with an explicit id that already exists returns the existing row, not null. Not changed here (it needs a decision: MySQL cannot tell the two apart without another query).
   - (change) **The model registry only answers names that can't be paths** (step 4's review follow-up). A registered name used to win over a same-spelled relative path link, process-wide: registering `'./user'` redirected every `t.linked('./user')`. Now only a name with no `/` or `\`, no leading `.` and no `.js`/`.ts`/`.cjs`/`.mjs` ending is looked up (`'user'`, `'auth.user'`), `registerModel` throws a `TypeError` for any other, and `getRegisteredModel` returns undefined for one even if another copy of yass put it in the shared Map. Rubber registers no names, so nothing changes there.
   - (test) **`test/config.lazy.test.js` is hermetic.** Its child processes got no `YASS_CONFIG`, so `findConfig` fell back to the folders above `lib/`, and a checkout's own `.yass-orm.js` (which sets `NODE_ENV`) failed two tests. They now get an empty config by default; the library is unchanged.
   - (fix) **MySQL without `uuidLinkedIds`: `findOrCreate()` on a `t.uuidKey` model returned ANOTHER row** (step 3's known bug 11). `dbh.create()` made an id only under `uuidLinkedIds`, so the insert carried none, the table's trigger made one, and the row was read back with `WHERE id = 0` (the insertId). MySQL compares a char id with 0 as a number, so that matched any row whose id starts with a letter or with zeros. Now the model makes the id with `generateObjectId`, as `create()` always has (a new `generateId` option on `dbh.create`, `findOrCreate`, `createIgnore` and `upsert`: make the id when the fields have none, whatever `uuidLinkedIds` says), and `dbh.create()` / `createIgnore()` **throw** when there is no id to read the new row back by (none given or made, no auto-increment id), instead of returning a wrong row. With `uuidLinkedIds` (Rubber) ids are made exactly as before. On Postgres the row was right (the insert returns the id); it now gets its id from `generateObjectId` too.
