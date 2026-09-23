@@ -56,6 +56,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keys). The database-backed ones also run in `npm run test:postgres`. Six
   bugs found are left as skipped `known bug: …` tests (see the README's
   Recent changes).
+- (test) **The second test database is `schema2` in the test config** (default
+  `yass_test2`), so parallel runs can each have their own.
 
 ### Changed
 
@@ -102,6 +104,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **MySQL without `uuidLinkedIds`: `findOrCreate()` on a `t.uuidKey` model
+  returned ANOTHER row.** It inserted no id (the table's trigger made one) and
+  read the row back with `WHERE id = 0`, which MySQL compares as a number. The
+  model now makes the id, as `create()` does (new `generateId` option on
+  `dbh.create` / `findOrCreate` / `createIgnore` / `upsert`), and `dbh.create()`
+  / `createIgnore()` throw when there is no id to read the new row back by,
+  instead of reading back the wrong one. With `uuidLinkedIds` (Rubber) nothing
+  changes.
+- **Postgres: `fromSql()` with no arguments failed** (`WHERE 1` is not a
+  boolean there). The default is now `1=1`.
+- **After `closeAllConnections()`, models and `syncSchemaToDb` failed with "pool
+  is closed"** for the rest of the process: `lib/utils.js` `handle()` and
+  `lib/sync-to-db.js` kept the closed handle. They now get a new one. New
+  `onConnectionsClosed(listener)` export in `lib/dbh.js`.
 - **`jsonify({ includeLinked: true })` on a row that links to itself never
   resolved**, and **a `jsonify()` while another was pending on the same
   instance got that call's result.** The cycle guard was a pending promise on

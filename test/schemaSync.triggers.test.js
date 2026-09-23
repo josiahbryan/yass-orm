@@ -25,6 +25,7 @@ const YassORM = require('../lib');
 const config = require('../lib/config');
 const { dbh, getDialect } = require('../lib/dbh');
 const { syncSchemaToDb } = require('../lib/sync-to-db');
+const { schema2 } = require('./helpers/schema2');
 
 const isMysql = () => (config.dialect || 'mysql') === 'mysql';
 
@@ -626,7 +627,7 @@ describe('#schemaSync declared triggers -- opt-in drop authority', () => {
 describe('#schemaSync getTableTriggers scopes to TRIGGER_SCHEMA', () => {
 	// Reuse the always-provisioned second schema from test/fakeSchemaDb2.js
 	// so this test does not carry its own `CREATE DATABASE` prerequisite.
-	const otherSchema = 'yass_test2';
+	const otherSchema = schema2();
 	// Two tables with the SAME name but in different schemas. If
 	// getTableTriggers's WHERE clause is not scoping to the passed
 	// database, it will return the WRONG trigger's row (or both).
@@ -660,7 +661,7 @@ describe('#schemaSync getTableTriggers scopes to TRIGGER_SCHEMA', () => {
 				`CREATE TABLE \`${otherSchema}\`.\`${tableName}\` (id char(36) PRIMARY KEY)`,
 			);
 			// The trigger name MUST be in the same schema as the table
-			// (MySQL error 1435). Qualify both sides for the yass_test2
+			// (MySQL error 1435). Qualify both sides for the second-schema
 			// case; the default-schema case can leave the name unqualified.
 			await conn.pquery(
 				`CREATE TRIGGER \`${triggerName}\` BEFORE INSERT ON \`${tableName}\` FOR EACH ROW BEGIN SET @yass_scope = 'in_default'; END`,

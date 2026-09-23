@@ -217,6 +217,8 @@ export type TransactionOptions = {
 
 export type FindOrCreateOptions = {
 	allowBlankIdOnCreate?: boolean;
+	/** Make the id with `idGenerator` when creating, even without `uuidLinkedIds`. */
+	generateId?: boolean;
 	idGenerator?: () => string;
 	silenceErrors?: boolean;
 	/** Defaults to true. Set false to retain the legacy non-transactional path. */
@@ -276,6 +278,8 @@ export type DbHandle = {
 		fields: AnyRecord,
 		opts?: {
 			allowBlankIdOnCreate?: boolean;
+			/** Make the id with `idGenerator` when `fields` has none, even without `uuidLinkedIds`. */
+			generateId?: boolean;
 			idGenerator?: (() => string) | string;
 			silenceErrors?: boolean;
 		},
@@ -309,6 +313,8 @@ export type DbHandle = {
 		fields: AnyRecord,
 		opts?: {
 			allowBlankIdOnCreate?: boolean;
+			/** Make the id with `idGenerator` when `fields` has none, even without `uuidLinkedIds`. */
+			generateId?: boolean;
 			idGenerator?: (() => string) | string;
 			conflictColumns?: string[];
 			silenceErrors?: boolean;
@@ -331,6 +337,8 @@ export type DbHandle = {
 			onDuplicate: Record<string, string> | string[];
 			conflictColumns?: string[];
 			allowBlankIdOnCreate?: boolean;
+			/** Make the id with `idGenerator` when `fields` has none, even without `uuidLinkedIds`. */
+			generateId?: boolean;
 			idGenerator?: (() => string) | string;
 			silenceErrors?: boolean;
 		},

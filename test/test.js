@@ -6,6 +6,10 @@ const uuid = require('uuid').v4;
 const YassORM = require('../lib');
 const { checkJsonSupport, syncSchemaToDb } = require('../lib/sync-to-db');
 const config = require('../lib/config');
+const { schema2 } = require('./helpers/schema2');
+
+// The cross-database table (test/fakeSchemaDb2.js).
+const db2Table = `${schema2()}.yass_test3`;
 
 // Detect if running with SQLite dialect
 const isSQLite = ['sqlite', 'sqlite3'].includes(config.dialect);
@@ -19,7 +23,9 @@ const { debugSql } = YassORM.DatabaseObject;
 
 	* Copy `sample.yass-orm.js` to `.yass-orm.js`
 	* Modify .yass-orm.js to suit the user/pass for your local DB
-	* Ensure database 'test' exists
+	* Ensure database 'test' exists, and a second database 'yass_test2' (or
+	  whatever `schema2` names in the config, so parallel runs can each have
+	  their own; see test/helpers/schema2.js)
 	* Create two test tables:
 		* create table yass_test1 (id int primary key auto_increment, name varchar(255), isDeleted int default 0, nonce varchar(255));
 		* create table yass_test2 (id varchar(255), name varchar(255), isDeleted int default 0, nonce varchar(255));
@@ -241,7 +247,7 @@ describe('#YASS-ORM', () => {
 		expect(schema.fieldMap.id.type).to.equal('uuidKey');
 		expect(schema.fieldMap.id.field).to.equal('id');
 		expect(schema.fieldMap.name.type).to.equal('varchar');
-		expect(schema.table).to.equal('yass_test2.yass_test3');
+		expect(schema.table).to.equal(db2Table);
 	});
 
 	let createdId;
@@ -251,12 +257,21 @@ describe('#YASS-ORM', () => {
 			this.skip();
 			return;
 		}
+		// Provision the table: `npm run test:schema-sync` reads its `db.table`
+		// name as `table.idField` (enableAlternateSchemaInTableName is off
+		// there), and syncSchemaToDb's CREATE TABLE drops the database part,
+		// so a fresh second database would not have it otherwise.
+		await Db2Class.withDbh((dbh) =>
+			dbh.pquery(
+				`CREATE TABLE IF NOT EXISTS ${db2Table} (id char(36) PRIMARY KEY, name varchar(255), nonce varchar(255), isDeleted int(1) NOT NULL DEFAULT 0)`,
+			),
+		);
 		const id = uuid();
 		createdId = id;
 		sample = await Db2Class.create({ id, name: 'foobar' });
 		expect(sample.id).to.equal(id);
 		expect(sample.name).to.equal('foobar');
-		expect(sample.table()).to.equal('yass_test2.yass_test3');
+		expect(sample.table()).to.equal(db2Table);
 	});
 
 	// SQLite doesn't support cross-database queries (schema.table syntax)
@@ -266,7 +281,7 @@ describe('#YASS-ORM', () => {
 			return;
 		}
 		const [data] = await UuuidClass.withDbh((dbh) =>
-			dbh.pquery('select * from yass_test2.yass_test3 where id=:createdId', {
+			dbh.pquery(`select * from ${db2Table} where id=:createdId`, {
 				createdId,
 			}),
 		);
@@ -280,7 +295,7 @@ describe('#YASS-ORM', () => {
 			return;
 		}
 		await Db2Class.withDbh((dbh) =>
-			dbh.pquery(`delete from yass_test2.yass_test3 where id=:id`, {
+			dbh.pquery(`delete from ${db2Table} where id=:id`, {
 				id: createdId,
 			}),
 		);

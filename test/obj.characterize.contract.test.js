@@ -88,13 +88,12 @@ describe('#characterize public contract', function contractSuite() {
 	});
 
 	describe('closeAllConnections()', () => {
-		// NEW BUG (found writing these tests): models get their handle from
-		// lib/utils.js handle(), and schema sync from a module-level `dbh` in
-		// lib/sync-to-db.js. Both cache it and are never told the pool was
+		// Fixed bug (step 3 found it; fixed in step 7): models get their handle
+		// from lib/utils.js handle(), and schema sync from a module-level `dbh`
+		// in lib/sync-to-db.js. Both cached it and were never told the pool was
 		// closed, so after closeAllConnections() every model call (and every
-		// syncSchemaToDb) fails with "pool is closed" (retryIfConnectionLost
-		// does not retry that), while dbh() makes a new pool. Unskip once fixed.
-		it.skip('known bug: models work again after closeAllConnections()', async () => {
+		// syncSchemaToDb) failed with "pool is closed".
+		it('models work again after closeAllConnections()', async () => {
 			const Model = YassORM.loadDefinition(({ types: t }) => ({
 				table: 'yass_char_reconnect',
 				schema: { id: t.idKey },
@@ -103,6 +102,19 @@ describe('#characterize public contract', function contractSuite() {
 			await YassORM.closeAllConnections();
 			const [row] = await Model.withDbh('select 1 as one');
 			expect(Number(row.one)).to.equal(1);
+		});
+
+		it('schema sync works again after closeAllConnections()', async () => {
+			// eslint-disable-next-line global-require
+			const { syncSchemaToDb } = require('../lib/sync-to-db');
+			const schema = () =>
+				YassORM.convertDefinition(({ types: t }) => ({
+					table: 'yass_char_reconnect',
+					schema: { id: t.idKey, name: t.string },
+				}));
+			expect((await syncSchemaToDb(schema())).errors).to.deep.equal([]);
+			await YassORM.closeAllConnections();
+			expect((await syncSchemaToDb(schema())).errors).to.deep.equal([]);
 		});
 	});
 

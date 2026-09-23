@@ -145,16 +145,13 @@ describe('#characterize finding and saving', function findSuite() {
 			expect(await Model.searchOne({ name: 'in tx' })).to.equal(null);
 		});
 
-		// NEW BUG (found writing these tests), MySQL: dbh.create() generates an
-		// id only when config.uuidLinkedIds is set. Without it, findOrCreate() on
-		// a t.uuidKey model inserts no id (the table's trigger sets one), then
-		// reads the row back with `WHERE id = 0` (the insertId). MySQL compares a
-		// char id with 0 as a number, so that matches any id starting with a
-		// letter or with zeros: it returns ANOTHER row, or none and throws
-		// 'patchIf requires an "existing" object argument'. Rubber sets
-		// uuidLinkedIds; create() is unaffected (it makes its own id). Unskip once
-		// fixed.
-		it.skip('known bug: findOrCreate() on a t.uuidKey model without uuidLinkedIds returns its own row', async () => {
+		// Fixed bug (step 3 found it; fixed in step 7), MySQL: dbh.create()
+		// generated an id only when config.uuidLinkedIds was set. Without it,
+		// findOrCreate() on a t.uuidKey model inserted no id (the table's trigger
+		// set one), then read the row back with `WHERE id = 0` (the insertId).
+		// MySQL compares a char id with 0 as a number, so that matched any id
+		// starting with a letter or with zeros: it returned ANOTHER row.
+		it('findOrCreate() on a t.uuidKey model without uuidLinkedIds returns its own row', async () => {
 			// On MySQL, '00000000-...' = 0 is true.
 			await UuidModel.create({
 				id: '00000000-0000-4000-8000-000000000000',
@@ -295,10 +292,10 @@ describe('#characterize finding and saving', function findSuite() {
 			expect(await Model.fromSql()).to.have.length(3);
 		});
 
-		// NEW BUG (found writing these tests): fromSql()'s default where clause
-		// is '1', which Postgres rejects ("argument of WHERE must be type
-		// boolean"). Unskip once fixed.
-		it.skip('known bug (Postgres): fromSql() with no arguments returns every row', async () => {
+		// Fixed bug (step 3 found it; fixed in step 7): fromSql()'s default
+		// where clause was '1', which Postgres rejects ("argument of WHERE must
+		// be type boolean").
+		it('fromSql() with no arguments returns every row (Postgres too)', async () => {
 			expect(await Model.fromSql()).to.have.length(3);
 		});
 
