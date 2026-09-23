@@ -973,9 +973,11 @@ export type LinkedModelOf<T> = T extends AnyModelClass
  * `t.linked(...)`'s field type: `T` is the link target as written (a model
  * class, a lazy reference, a registered name or a path), `N` whether the
  * column takes NULL. The linked model is worked out from `T` only when read,
- * so models linked by registered name may link to each other.
+ * so models linked by registered name may link to each other. The defaults
+ * (any target, either nullability) make a bare `LinkedFieldType` accept
+ * every `t.linked(...)`.
  */
-export interface LinkedFieldType<T = ModelClass, N extends boolean = true> {
+export interface LinkedFieldType<T = LinkTarget, N extends boolean = boolean> {
 	(options?: AnyRecord): LinkedFieldType<T, N>;
 	readonly type: string;
 	readonly linkedModel: LinkTarget;
@@ -1227,8 +1229,8 @@ export interface SchemaTypes {
 	linked<T extends LinkTarget>(
 		target: T,
 		options?: LinkOptions,
-	): LinkedFieldType<T>;
-	parent<T extends LinkTarget>(target: T): LinkedFieldType<T>;
+	): LinkedFieldType<T, true>;
+	parent<T extends LinkTarget>(target: T): LinkedFieldType<T, true>;
 	hasMany(target?: LinkTarget, options?: AnyRecord): HasManyHint;
 	[type: string]: any;
 }

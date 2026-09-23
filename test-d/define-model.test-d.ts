@@ -14,6 +14,7 @@ import {
 	type SchemaTypes,
 	type AnyModelClass,
 	type DefinedModel,
+	type LinkedFieldType,
 } from 'yass-orm';
 
 // ---------------------------------------------------------------------------
@@ -302,3 +303,19 @@ expectError(applyTableNames([Org], { tables: { orgs: 42 } }));
 
 // A defined model isn't the loosely typed DatabaseObject: its id is typed.
 expectNotAssignable<typeof DatabaseObject>(Counter);
+
+// A bare LinkedFieldType (the pre-defineModel annotation) takes every link:
+// a lazy reference, a class, a registered name, a path, with a default.
+declare const schemaTypes: SchemaTypes;
+expectAssignable<LinkedFieldType>(schemaTypes.linked(() => OrgModel));
+expectAssignable<LinkedFieldType>(schemaTypes.linked(OrgModel));
+expectAssignable<LinkedFieldType>(schemaTypes.linked('team'));
+expectAssignable<LinkedFieldType>(schemaTypes.linked('../models/thing'));
+expectAssignable<LinkedFieldType>(
+	schemaTypes.linked(() => OrgModel).default('org_1'),
+);
+expectAssignable<LinkedFieldType<typeof OrgModel>>(schemaTypes.linked(OrgModel));
+// ...and it still carries its nullability.
+expectType<OrgModel | null>(
+	({} as ModelFields<{ o: ReturnType<typeof schemaTypes.linked<typeof OrgModel>> }>).o,
+);

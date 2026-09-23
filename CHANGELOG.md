@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ModelInstance`, `ModelData`, `ModelInput`, `ModelZodSchema`,
   `AnyModelClass`, `ModelInstanceMethods`. `DatabaseObject`'s statics, links,
   the registry and `checkLinks` accept any `AnyModelClass` (looser only).
+- (types) `LinkedFieldType`'s parameter is now the link target, not the
+  model. A bare `LinkedFieldType` still accepts every `t.linked(...)`, but
+  `LinkedFieldType<typeof User>` no longer accepts `t.linked(() => User)`.
 
 - **SQL helpers: `sqlHelpers`** (`lib/sql-helpers.js`): `inList`, `now`,
   `addInterval` / `subtractInterval`, `nullSafeEqual` / `nullSafeNotEqual`,
