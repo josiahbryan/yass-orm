@@ -207,7 +207,7 @@ describe('#characterize a Rubber-style subclass', function rubberSuite() {
 			expect(account.name).to.equal('Updated');
 		});
 
-		it('set() schedules update(), which reaches the patch override with no data', async () => {
+		it('set() schedules update(), which reaches the patch override through this', async () => {
 			const account = await newAccount();
 			account.set('name', 'via set');
 			expect(account.name).to.equal('via set');
@@ -221,12 +221,11 @@ describe('#characterize a Rubber-style subclass', function rubberSuite() {
 				// eslint-disable-next-line no-await-in-loop
 				await new Promise((resolve) => setTimeout(resolve, 25));
 			}
-			expect(takeDetailed()[0]).to.deep.equal([
-				'RubberAccount',
-				'patch',
-				[],
-				undefined,
-			]);
+			// Only that the save goes through the override. Which keys it carries
+			// is left open: today none (update() calls patch(undefined), the known
+			// bug below), and the fix is expected to pass the fields set() changed.
+			const [model, method] = takeDetailed()[0];
+			expect([model, method]).to.deep.equal(['RubberAccount', 'patch']);
 		});
 
 		// NEW BUG (found writing these tests): update() calls patch(undefined).

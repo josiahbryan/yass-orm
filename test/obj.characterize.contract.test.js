@@ -175,6 +175,91 @@ describe('#characterize public contract', function contractSuite() {
 			});
 		});
 
+		describe('config resolution (how Rubber configures yass)', () => {
+			// Runs a fresh node in the consumer dir and prints the config fields
+			// asked for, as seen through both the deep import and the main module.
+			const probeConfig = (env) => {
+				const script = [
+					"const deep = require('yass-orm/lib/config.js');",
+					"const main = require('yass-orm').config;",
+					'console.log(JSON.stringify({ same: deep === main,',
+					'	host: deep.host, schema: deep.schema, port: deep.port,',
+					'	uuidLinkedIds: deep.uuidLinkedIds, shared: deep.fromShared }));',
+				].join('\n');
+				const childEnv = { ...process.env, ...env };
+				Object.keys(childEnv).forEach((key) => {
+					if (childEnv[key] === undefined) delete childEnv[key];
+				});
+				const run = spawnSync(process.execPath, ['-e', script], {
+					cwd: consumerDir,
+					env: childEnv,
+					encoding: 'utf8',
+				});
+				expect(run.status, run.stderr).to.equal(0);
+				return JSON.parse(run.stdout.trim().split('\n').pop());
+			};
+
+			const userConfig = (host) =>
+				[
+					'module.exports = {',
+					"	shared: { fromShared: 'yes', port: 4000 },",
+					`	development: { host: '${host}-dev', schema: 'dev_s' },`,
+					`	production: { host: '${host}-prod', schema: 'prod_s', uuidLinkedIds: true },`,
+					'};',
+				].join('\n');
+
+			it('YASS_CONFIG names the file; YASS_ENV picks the block over NODE_ENV; defaults < shared < env block', () => {
+				const file = path.join(consumerDir, 'explicit-config.cjs');
+				fs.writeFileSync(file, userConfig('explicit'));
+				expect(
+					probeConfig({
+						YASS_CONFIG: file,
+						NODE_ENV: 'development',
+						YASS_ENV: 'production',
+					}),
+				).to.deep.equal({
+					same: true,
+					host: 'explicit-prod',
+					schema: 'prod_s',
+					port: 4000,
+					uuidLinkedIds: true,
+					shared: 'yes',
+				});
+				expect(
+					probeConfig({
+						YASS_CONFIG: file,
+						NODE_ENV: 'production',
+						YASS_ENV: undefined,
+					}).host,
+				).to.equal('explicit-prod');
+			});
+
+			it('with no YASS_CONFIG, .yass-orm.cjs is found from the working directory (Rubber runs from backend/)', () => {
+				fs.writeFileSync(
+					path.join(consumerDir, '.yass-orm.cjs'),
+					userConfig('cwd'),
+				);
+				try {
+					expect(
+						probeConfig({
+							YASS_CONFIG: undefined,
+							NODE_ENV: 'development',
+							YASS_ENV: undefined,
+						}),
+					).to.deep.equal({
+						same: true,
+						host: 'cwd-dev',
+						schema: 'dev_s',
+						port: 4000,
+						uuidLinkedIds: false,
+						shared: 'yes',
+					});
+				} finally {
+					fs.rmSync(path.join(consumerDir, '.yass-orm.cjs'));
+				}
+			});
+		});
+
 		it('the bin paths consumers call exist; schema-sync is the declared bin', () => {
 			expect(pkg.bin).to.deep.equal({
 				'yass-orm-schema-sync': 'bin/schema-sync',
@@ -298,6 +383,31 @@ describe('#characterize public contract', function contractSuite() {
 				};
 				const Model = YassORM.loadDefinition('./bundled/char-plain-def');
 				expect(Model.table()).to.equal('yass_char_mapped_def');
+			});
+
+			// Rubber's Bun build does not set this global at run time: it passes
+			// `define: { 'globalThis.__YASS_DEF_PATH_MAP__': <json> }` to
+			// Bun.build (backend/scripts/build/bun/build-simple-agent.ts), which
+			// replaces that exact expression in yass's source text. So the lookup
+			// must stay spelled `globalThis.__YASS_DEF_PATH_MAP__` in lib/, not
+			// read through an alias (`const g = globalThis; g[key]`) or a helper
+			// that owns the globals: the test above would still pass, and every
+			// bundled model definition would stop resolving.
+			it('__YASS_DEF_PATH_MAP__ is read as the literal expression Bun `define` replaces', () => {
+				const libDir = path.join(root, 'lib');
+				const readers = fs
+					.readdirSync(libDir)
+					.filter((file) => file.endsWith('.js'))
+					.filter((file) =>
+						/(^|[^.\w])globalThis\.__YASS_DEF_PATH_MAP__\b/.test(
+							fs
+								.readFileSync(path.join(libDir, file), 'utf8')
+								.split('\n')
+								.filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+								.join('\n'),
+						),
+					);
+				expect(readers).to.not.deep.equal([]);
 			});
 
 			it('__YASS_ORM_DEFINITION_INDEX__: registerDefinition() fills it, loadDefinition() reads it', () => {

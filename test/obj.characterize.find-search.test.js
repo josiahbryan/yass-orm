@@ -333,7 +333,7 @@ describe('#characterize finding and saving', function findSuite() {
 			expect(instance).to.include({ name: 'c', points: 4 });
 		});
 
-		it('set() calls this.update() once, with no arguments, 300ms later', async () => {
+		it('set() calls this.update() once, 300ms later, for several set() calls', async () => {
 			const instance = await Model.create({ name: 'a' });
 			const updates = [];
 			instance.update = async (...args) => {
@@ -344,7 +344,9 @@ describe('#characterize finding and saving', function findSuite() {
 			instance.set('points', 2);
 			expect(updates).to.deep.equal([]);
 			await new Promise((resolve) => setTimeout(resolve, 400));
-			expect(updates).to.deep.equal([[]]);
+			// Its arguments are left open: today none (so update() calls
+			// patch(undefined), the known bug below); a fix may pass the changes.
+			expect(updates).to.have.length(1);
 		});
 
 		it('update(data) patches like patch(data)', async () => {
