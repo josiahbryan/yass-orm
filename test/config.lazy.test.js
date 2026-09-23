@@ -267,6 +267,37 @@ describe('#YASS-ORM config loaded on first use', function lazyConfigSuite() {
 		});
 	});
 
+	it('does not copy the whole config on every dbh() call (the per-query path)', () => {
+		// Wrap the config in a proxy that counts enumerations (spread,
+		// Object.keys) before dbh.js requires it, then check that a cached
+		// dbh() only reads the handful of values its cache key needs.
+		const result = runChild(
+			`${EMIT}
+			const lib = process.env.LIB;
+			const configPath = require.resolve(lib + '/config.js');
+			const real = require(configPath);
+			let enumerations = 0;
+			require.cache[configPath].exports = new Proxy(real, {
+				ownKeys: (t) => { enumerations += 1; return Reflect.ownKeys(real); },
+			});
+			const { dbh } = require(lib + '/dbh');
+			(async () => {
+				const first = await dbh();
+				enumerations = 0;
+				const second = await dbh();
+				await dbh();
+				emit({ same: first === second, enumerations });
+				process.exit(0);
+			})().catch((e) => { console.error(e); process.exit(1); });`,
+			{ NODE_ENV: 'development', YASS_CONFIG: sqliteConfig },
+		);
+		expect(result.status, result.stderr).to.equal(0);
+		expect(lastJson(result.stdout)).to.deep.equal({
+			same: true,
+			enumerations: 0,
+		});
+	});
+
 	it('dbh, def-to-schema and schema sync read a config set after they were required', () => {
 		const result = runChild(
 			`${EMIT}
