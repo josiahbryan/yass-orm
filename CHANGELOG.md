@@ -27,6 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Postgres without its SQL transformer no longer passes SQL through
   untransformed: `transformSql` throws the missing-package error.
+- **MySQL: a `t.uuidKey` table named with more than 43 characters no longer
+  fails schema sync** (*Identifier name ... is too long*). The built-in
+  `before_insert_<table>_set_id` trigger's name is fitted to the 64-character
+  limit (the first 55 characters, `_`, 8 hex characters of its SHA-1) by one
+  helper, `idTriggerName` in `lib/identifiers.js`, used wherever sync names or
+  looks it up. Names that fit are unchanged. Postgres makes no such trigger.
+  The limits are named: `MYSQL_MAX_IDENTIFIER_LENGTH` (64),
+  `POSTGRES_MAX_IDENTIFIER_LENGTH` (63).
 
 ### Not changed
 

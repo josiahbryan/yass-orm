@@ -30,12 +30,12 @@ const { schema2 } = require('./helpers/schema2');
 const isMysql = () => (config.dialect || 'mysql') === 'mysql';
 
 /**
- * Short-ish unique table suffix. MySQL caps identifiers at 64 chars, and the
- * synthetic id trigger name is `before_insert_<table>_set_id` (adds 21 chars
- * of framing), so the table itself must stay under ~43 chars. A full uuid()
- * minus dashes is 32 chars -- over budget once combined with prefixes like
- * `yass_trig_optin_`. Eight chars of hex is plenty of collision resistance
- * for the lifetime of one test run and leaves headroom.
+ * Short-ish unique table suffix. The synthetic id trigger name is
+ * `before_insert_<table>_set_id` (21 chars of framing); MySQL caps identifiers
+ * at 64, so these suites keep tables at 43 chars or fewer, where the name is
+ * used exactly as is and the tests can spell it out. (A longer table gets a
+ * fitted name: test/schemaSync.longTableName.test.js.) Eight chars of hex is
+ * plenty of collision resistance for the lifetime of one test run.
  */
 function shortId() {
 	return uuid().replace(/-/g, '').slice(0, 8);
