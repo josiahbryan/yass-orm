@@ -184,6 +184,11 @@ describe('transaction lifecycle unit coverage', () => {
 			isRetryableTransactionError({ cause: { code: '40001' } }),
 		).to.equal(true);
 		expect(isRetryableTransactionError({ errno: 1213 })).to.equal(true);
+		// MySQL: a table made after the transaction's first read.
+		expect(
+			isRetryableTransactionError({ code: 'ER_TABLE_DEF_CHANGED' }),
+		).to.equal(true);
+		expect(isRetryableTransactionError({ errno: 1412 })).to.equal(true);
 		expect(isRetryableTransactionError({ code: 'SQLITE_BUSY_TIMEOUT' })).to
 			.equal(true);
 		expect(isRetryableTransactionError({ code: '23505' })).to.equal(false);

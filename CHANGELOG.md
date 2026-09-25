@@ -25,6 +25,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **MySQL: the first `lockKey` on a fresh database failed** with *Table
+  definition has changed, please retry transaction* (`ER_TABLE_DEF_CHANGED`).
+  It created `yass_locks` from another connection while the caller's
+  transaction was open, and InnoDB refuses a transaction a table created
+  after its first read. Schema sync now creates the table (once per
+  process), and `sqlHelpers.ensureLockTable(db)` (new) does it for a service
+  that doesn't sync; both check the catalog first (no DDL when it exists)
+  and are safe with several processes starting at once. `lockKey` still
+  creates it, outside the transaction, when neither ran. Postgres was not
+  affected.
+- `ER_TABLE_DEF_CHANGED` (errno 1412) is a retryable transaction error:
+  `transaction(fn, { maxRetries })` runs the transaction again.
 - Postgres without its SQL transformer no longer passes SQL through
   untransformed: `transformSql` throws the missing-package error.
 - **`set()`'s auto-save saves** (bug 14). It called `this.update()` with no
@@ -56,6 +68,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`sqlHelpers.ensureLockTable(db)`**: makes `lockKey`'s table if missing,
+  outside any transaction; call it at startup when you don't run schema sync.
+  Schema sync now creates the table too, so a project that doesn't use
+  `lockKey` gets an empty `yass_locks` table on its next sync.
 - **`registerCommittedChangeHook(fn)`**: a change hook that runs once the
   change is committed (after `COMMIT` inside a transaction, never after a
   rollback), with `wasDeleted`; `reallyDelete()` fires it (and still fires no

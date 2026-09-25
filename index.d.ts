@@ -1676,6 +1676,11 @@ export interface SqlHelpers {
 	): string;
 	/** Locks `key` until the transaction ends (the advisory-lock replacement). */
 	lockKey(tx: DbHandle, key: string): Promise<void>;
+	/**
+	 * Makes lockKey's table (`yass_locks`) if missing, outside any
+	 * transaction: at startup when you don't run schema sync (which does it).
+	 */
+	ensureLockTable(db: DbHandle): Promise<void>;
 	/** Insert, or update where `where` holds. */
 	upsertWhere(
 		db: DbHandle,

@@ -11,6 +11,7 @@ expectType<{ sql: string; params: Record<string, any> }>(
 );
 expectType<string>(sqlHelpers.forUpdate(db, { skipLocked: true }));
 expectType<Promise<void>>(sqlHelpers.lockKey(db, 'k'));
+expectType<Promise<void>>(sqlHelpers.ensureLockTable(db));
 expectType<Promise<{ inserted: boolean; updated: boolean }>>(
 	sqlHelpers.upsertWhere(db, 'attempts', {
 		values: { key: 'k', failures: 1 },
