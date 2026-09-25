@@ -8,6 +8,7 @@ const {
 	quoteTable,
 	ROLLBACK,
 	rollingBack,
+	eventually,
 } = require('./helpers/characterize');
 
 const { calls, runAs } = require('./fixtures/characterize/rubber-base');
@@ -221,28 +222,65 @@ describe('#characterize a Rubber-style subclass', function rubberSuite() {
 				// eslint-disable-next-line no-await-in-loop
 				await new Promise((resolve) => setTimeout(resolve, 25));
 			}
-			// Only that the save goes through the override. Which keys it carries
-			// is left open: today none (update() calls patch(undefined), the known
-			// bug below), and the fix is expected to pass the fields set() changed.
-			const [model, method] = takeDetailed()[0];
-			expect([model, method]).to.deep.equal(['RubberAccount', 'patch']);
+			// Fixed bug 14: the save carries the fields set() changed (it used to
+			// be patch(undefined)), with no options, as update(data) does.
+			expect(takeDetailed()[0]).to.deep.equal([
+				'RubberAccount',
+				'patch',
+				['name'],
+				undefined,
+			]);
 		});
 
-		// NEW BUG (found writing these tests): update() calls patch(undefined).
-		// Rubber's override accepts that (no throw), but then patches only
-		// updatedAt and reads the row back, so the field set() changed is
-		// reverted to its value on disk: the save never happens. Unskip once
-		// fixed.
-		it.skip('known bug: set() auto-save through a Rubber-style patch saves the field', async () => {
-			const account = await newAccount();
-			account.set('name', 'via set');
-			await new Promise((resolve) => setTimeout(resolve, 400));
-			expect(account.name).to.equal('via set');
+		// Rubber's setCachedId copies fields itself (no _freshenInstance), so
+		// these reach yass's own read paths: inflate() and a write's read-back.
+		const storedName = async (id) => {
 			const [row] = await conn.pquery(
 				`SELECT name FROM ${quoteTable(Account.table())} WHERE id = :id`,
-				{ id: account.id },
+				{ id },
 			);
-			expect(row.name).to.equal('via set');
+			return row.name;
+		};
+
+		// Waits for the save to be stored and to end (in afterChangeHook), so
+		// none of its calls land in the next test's `calls`.
+		const saved = async (account, name, afterChangeHooks = 1) => {
+			await eventually(async () => {
+				expect(await storedName(account.id)).to.equal(name);
+				expect(
+					calls.filter(([, method]) => method === 'afterChangeHook'),
+				).to.have.length(afterChangeHooks);
+			});
+		};
+
+		// Fixed bug 14 (found writing these tests): update() called
+		// patch(undefined). Rubber's override accepted that (no throw), then
+		// patched only updatedAt and read the row back, so the field set()
+		// changed reverted to its value on disk: the save never happened.
+		it('set() auto-save through a Rubber-style patch saves the field', async () => {
+			const account = await newAccount();
+			account.set('name', 'via set');
+			await saved(account, 'via set');
+			expect(account.name).to.equal('via set');
+		});
+
+		it('a get() before the save does not undo the set(), and it is saved', async () => {
+			const account = await newAccount();
+			account.set('name', 'via set');
+			expect(await Account.get(account.id)).to.equal(account);
+			expect(account.name).to.equal('via set');
+			await saved(account, 'via set');
+			expect(account.name).to.equal('via set');
+		});
+
+		it('a patch() of another field before the save keeps the set() value; both are saved', async () => {
+			const account = await newAccount();
+			account.set('name', 'via set');
+			await account.patch({ status: 'paused' });
+			expect(account).to.include({ name: 'via set', status: 'paused' });
+			// The explicit patch() and the save each end in afterChangeHook.
+			await saved(account, 'via set', 2);
+			expect(account).to.include({ name: 'via set', status: 'paused' });
 		});
 	});
 

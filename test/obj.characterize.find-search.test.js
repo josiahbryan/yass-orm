@@ -10,6 +10,7 @@ const {
 	ROLLBACK,
 	rollingBack,
 	rejectionOf,
+	eventually,
 } = require('./helpers/characterize');
 
 /**
@@ -320,6 +321,31 @@ describe('#characterize finding and saving', function findSuite() {
 	});
 
 	describe('set() and update() on a plain model', () => {
+		// PATCH_DEFER_DELAY is 300ms: long enough for the save to have started.
+		const afterAutoSave = () =>
+			new Promise((resolve) => setTimeout(resolve, 400));
+
+		// The row as stored, read past the instance cache.
+		const stored = async (id) => {
+			const [row] = await conn.pquery(
+				`SELECT name, points FROM ${quoteTable(Model.table())} WHERE id = :id`,
+				{ id },
+			);
+			return row && { name: row.name, points: row.points };
+		};
+
+		// Records each update() call, then runs the real one.
+		const recordUpdates = (instance) => {
+			const updates = [];
+			const { update } = instance;
+			// eslint-disable-next-line no-param-reassign
+			instance.update = (...args) => {
+				updates.push(args);
+				return update.apply(instance, args);
+			};
+			return updates;
+		};
+
 		it('set() assigns at once and returns the instance; an object sets several', async () => {
 			const instance = await Model.create({ name: 'a' });
 			// No auto-save in this test.
@@ -330,7 +356,7 @@ describe('#characterize finding and saving', function findSuite() {
 			expect(instance).to.include({ name: 'c', points: 4 });
 		});
 
-		it('set() calls this.update() once, 300ms later, for several set() calls', async () => {
+		it('set() calls this.update() once, 300ms later, with the fields it set', async () => {
 			const instance = await Model.create({ name: 'a' });
 			const updates = [];
 			instance.update = async (...args) => {
@@ -340,10 +366,9 @@ describe('#characterize finding and saving', function findSuite() {
 			instance.set('name', 'b');
 			instance.set('points', 2);
 			expect(updates).to.deep.equal([]);
-			await new Promise((resolve) => setTimeout(resolve, 400));
-			// Its arguments are left open: today none (so update() calls
-			// patch(undefined), the known bug below); a fix may pass the changes.
-			expect(updates).to.have.length(1);
+			await afterAutoSave();
+			// Fixed bug 14: update() used to get no arguments (so patch(undefined)).
+			expect(updates).to.deep.equal([[{ name: 'b', points: 2 }]]);
 		});
 
 		it('update(data) patches like patch(data)', async () => {
@@ -353,18 +378,161 @@ describe('#characterize finding and saving', function findSuite() {
 			expect((await Model.get(instance.id)).name).to.equal('updated');
 		});
 
-		// KNOWN BUG (plan, step 2): update() calls patch(undefined), which throws
-		// a TypeError on a plain model, so set()'s auto-save never saves; since
-		// step 2 the error goes to onAutoSaveError. Unskip once fixed.
-		it.skip('known bug: set() auto-save on a plain model saves the field', async () => {
+		// Fixed bug 14 (plan, step 2): update() called patch(undefined), which
+		// threw on a plain model, so set()'s auto-save never saved.
+		it('set() auto-save on a plain model saves the field', async () => {
 			const instance = await Model.create({ name: 'a' });
 			const errors = [];
 			instance.onAutoSaveError = (error) => errors.push(error);
 			instance.set('name', 'saved by set');
-			await new Promise((resolve) => setTimeout(resolve, 400));
+			await eventually(async () =>
+				expect(await stored(instance.id)).to.include({ name: 'saved by set' }),
+			);
 			expect(errors).to.deep.equal([]);
 			Model.clearCache();
 			expect((await Model.get(instance.id)).name).to.equal('saved by set');
+		});
+
+		it('a read of the row before the save does not undo the set(), and it is saved', async () => {
+			const instance = await Model.create({ name: 'a', points: 1 });
+			instance.set('name', 'x');
+			// get() freshens the cached instance, which is this one.
+			expect(await Model.get(instance.id)).to.equal(instance);
+			expect(instance.name).to.equal('x');
+			await eventually(async () =>
+				expect(await stored(instance.id)).to.deep.equal({
+					name: 'x',
+					points: 1,
+				}),
+			);
+			expect(instance.name).to.equal('x');
+		});
+
+		it('a patch() of another field before the save keeps the set() value; both are saved', async () => {
+			const instance = await Model.create({ name: 'a', points: 1 });
+			instance.set('name', 'x');
+			await instance.patch({ points: 9 });
+			expect(instance).to.include({ name: 'x', points: 9 });
+			await eventually(async () =>
+				expect(await stored(instance.id)).to.deep.equal({
+					name: 'x',
+					points: 9,
+				}),
+			);
+			expect(instance).to.include({ name: 'x', points: 9 });
+		});
+
+		it('a patch() of the same field before the save is the later write: it wins', async () => {
+			const instance = await Model.create({ name: 'a', points: 1 });
+			const updates = recordUpdates(instance);
+			instance.set('name', 'x');
+			await instance.patch({ name: 'y' });
+			await afterAutoSave();
+			// Nothing was left to save.
+			expect(updates).to.deep.equal([]);
+			expect(instance.name).to.equal('y');
+			expect(await stored(instance.id)).to.deep.equal({ name: 'y', points: 1 });
+		});
+
+		it('a patch() of the same field that fails does not drop the set(): it is still saved', async () => {
+			const instance = await Model.create({ name: 'a' });
+			instance.set('name', 'x');
+			const { _runOn: runOn } = instance;
+			instance._runOn = () => Promise.reject(new Error('write failed'));
+			const error = await rejectionOf(instance.patch({ name: 'y' }));
+			instance._runOn = runOn;
+			expect(error.message).to.equal('write failed');
+			await eventually(async () =>
+				expect(await stored(instance.id)).to.include({ name: 'x' }),
+			);
+		});
+
+		it('patchIf() of the unsaved value itself writes nothing (it compares with the instance); the set() is still saved', async () => {
+			const instance = await Model.create({ name: 'a' });
+			instance.set('name', 'x');
+			await instance.patchIf({ name: 'x' });
+			await eventually(async () =>
+				expect(await stored(instance.id)).to.include({ name: 'x' }),
+			);
+			expect(instance.name).to.equal('x');
+		});
+
+		it('patchIf() that writes a field (ifFalsey) is the later write: it wins', async () => {
+			const instance = await Model.create({ name: 'a' });
+			const updates = recordUpdates(instance);
+			instance.set('name', '');
+			await instance.patchIf({}, { name: 'z' });
+			await afterAutoSave();
+			expect(updates).to.deep.equal([]);
+			expect(instance.name).to.equal('z');
+			expect(await stored(instance.id)).to.include({ name: 'z' });
+		});
+
+		it('a set() while the save runs is saved next; the first save does not undo it', async () => {
+			const instance = await Model.create({ name: 'a' });
+			const { patch } = instance;
+			const saves = [];
+			instance.patch = function patchWithSetDuringSave(...args) {
+				// Inside the save: a patch override that awaits, then sets, is the
+				// same case.
+				if (!saves.length) this.set('name', 'second');
+				const save = patch.apply(this, args);
+				saves.push(save);
+				return save;
+			};
+			instance.set('name', 'first');
+			await eventually(() => expect(saves).to.have.length(1));
+			await saves[0];
+			// The first save's read-back said 'first'; the edit made during it
+			// stays on top.
+			expect(instance.name).to.equal('second');
+			await eventually(async () =>
+				expect(await stored(instance.id)).to.include({ name: 'second' }),
+			);
+			expect(saves).to.have.length(2);
+			expect(instance.name).to.equal('second');
+		});
+
+		it("a transaction's write of another field, published at commit, does not undo the set()", async () => {
+			const instance = await Model.create({ name: 'a', points: 1 });
+			instance.set('name', 'x');
+			await conn.transaction(async (tx) => {
+				const inTx = await Model.get(instance.id, { tx });
+				expect(inTx).to.not.equal(instance);
+				await inTx.patch({ points: 5 }, { tx });
+			});
+			// The commit copied the transaction's row onto the shared instance.
+			expect(await Model.getCachedId(instance.id)).to.equal(instance);
+			expect(instance).to.include({ name: 'x', points: 5 });
+			await eventually(async () =>
+				expect(await stored(instance.id)).to.deep.equal({
+					name: 'x',
+					points: 5,
+				}),
+			);
+		});
+
+		it('reallyDelete() cancels the save of unsaved set()s', async () => {
+			const instance = await Model.create({ name: 'a' });
+			const updates = recordUpdates(instance);
+			instance.set('name', 'x');
+			await instance.reallyDelete();
+			await afterAutoSave();
+			expect(updates).to.deep.equal([]);
+			expect(await stored(instance.id)).to.equal(undefined);
+		});
+
+		it('set() of a field not in the schema only assigns it: nothing is saved', async () => {
+			const instance = await Model.create({ name: 'a' });
+			const updates = [];
+			instance.update = async (...args) => {
+				updates.push(args);
+				return instance;
+			};
+			instance.set('scratch', 1);
+			expect(instance.scratch).to.equal(1);
+			await afterAutoSave();
+			expect(updates).to.deep.equal([]);
 		});
 	});
 });

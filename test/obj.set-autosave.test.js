@@ -92,11 +92,11 @@ describe('#YASS-ORM set() auto-save errors', () => {
 		expect(logged[0]).to.include(hookError);
 	});
 
-	it('several set() calls in a row still save once (control)', async () => {
+	it('several set() calls in a row save once, with the last value (control)', async () => {
 		const instance = await Model.inflate({ id: 8, name: 'before' });
-		let saves = 0;
-		instance.update = async () => {
-			saves += 1;
+		const saves = [];
+		instance.update = async (data) => {
+			saves.push(data);
 			return instance;
 		};
 
@@ -104,7 +104,7 @@ describe('#YASS-ORM set() auto-save errors', () => {
 		instance.set('name', 'b');
 		await afterAutoSave();
 
-		expect(saves).to.equal(1);
+		expect(saves).to.deep.equal([{ name: 'b' }]);
 		expect(unhandled).to.deep.equal([]);
 		expect(logged).to.deep.equal([]);
 	});

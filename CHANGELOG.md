@@ -27,6 +27,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Postgres without its SQL transformer no longer passes SQL through
   untransformed: `transformSql` throws the missing-package error.
+- **`set()`'s auto-save saves** (bug 14). It called `this.update()` with no
+  arguments, so `patch(undefined)`: a plain model threw, and a `patch`
+  override that accepts `undefined` patched only `updatedAt`, then its
+  read-back reverted the field. Now the save is `this.update(changes)` with
+  the values `set()` was given. Until it starts, a read of the row onto the
+  instance keeps those values, and a successful `patch()` of the same field
+  on the instance wins (the later write; `patchIf()` for the fields it
+  really wrote). A `set()` during a save is saved next; `reallyDelete()`
+  cancels the save. A field not in the schema is only assigned. **Behavior
+  change: `set()` now writes**, outside any transaction, and over a write of
+  the same field made another way (another instance, `findOrCreate`) before
+  the save. Inside a transaction, or where that matters, use `patch()`.
 - **MySQL: a `t.uuidKey` table named with more than 43 characters no longer
   fails schema sync** (*Identifier name ... is too long*). The built-in
   `before_insert_<table>_set_id` trigger's name is fitted to the 64-character

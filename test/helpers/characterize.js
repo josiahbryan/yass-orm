@@ -67,7 +67,26 @@ const rejectionOf = async (promise) => {
 	return undefined;
 };
 
+/**
+ * Retries `check` until it passes, or rethrows its last failure after
+ * `timeoutMs`: for a test waiting on work nothing awaits (set()'s auto-save).
+ */
+const eventually = async (check, timeoutMs = 5000) => {
+	const deadline = Date.now() + timeoutMs;
+	for (;;) {
+		try {
+			// eslint-disable-next-line no-await-in-loop
+			return await check();
+		} catch (error) {
+			if (Date.now() > deadline) throw error;
+			// eslint-disable-next-line no-await-in-loop
+			await new Promise((resolve) => setTimeout(resolve, 25));
+		}
+	}
+};
+
 module.exports = {
+	eventually,
 	rejectionOf,
 	isPostgres,
 	quoteTable,
