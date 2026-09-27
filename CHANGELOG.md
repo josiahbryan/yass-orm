@@ -25,6 +25,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **MySQL/MariaDB: a `DATETIME` in the repeated hour at the end of daylight
+  saving read back an hour early** when the process time zone has daylight
+  saving (in `America/Chicago`, `2030-11-03 07:30` UTC came back as 06:30).
+  The `mariadb` driver's UTC read goes through a local wall-clock string; the
+  MySQL dialect now reads `DATETIME` and `TIMESTAMP` columns as UTC itself (a
+  driver `typeCast`, on pools and single connections). NULL and zero dates are
+  still `null`; `DATE` columns, the write path, Postgres and
+  `disableTimezone` are unchanged.
 - **MySQL: the first `lockKey` on a fresh database failed** with *Table
   definition has changed, please retry transaction* (`ER_TABLE_DEF_CHANGED`).
   It created `yass_locks` from another connection while the caller's

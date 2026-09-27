@@ -35,6 +35,45 @@ describe('MySQLDialect timezone options', () => {
 				expect(opts).to.not.have.property('resetAfterUse');
 			});
 
+			it('reads DATETIME and TIMESTAMP as UTC itself; every other column as the driver does', async () => {
+				const { typeCast } = await captureDriverOptions(method, {
+					database: 'd',
+				});
+				expect(typeCast).to.be.a('function');
+				const column = (type, text) => ({ type, string: () => text });
+				const driverRead = () => 'driver';
+
+				// 01:30 CST on fall-back day: the driver read it as 06:30Z.
+				expect(
+					typeCast(
+						column('DATETIME', '2030-11-03 07:30:00.456'),
+						driverRead,
+					).toISOString(),
+				).to.equal('2030-11-03T07:30:00.456Z');
+				expect(
+					typeCast(
+						column('TIMESTAMP', '2030-03-10 08:30:00'),
+						driverRead,
+					).toISOString(),
+				).to.equal('2030-03-10T08:30:00.000Z');
+				// Microseconds are cut to milliseconds, as the driver did.
+				expect(
+					typeCast(
+						column('DATETIME', '2030-11-03 07:30:00.456789'),
+						driverRead,
+					).toISOString(),
+				).to.equal('2030-11-03T07:30:00.456Z');
+				expect(typeCast(column('DATETIME', null), driverRead)).to.equal(null);
+				expect(
+					typeCast(column('DATETIME', '0000-00-00 00:00:00.000'), driverRead),
+				).to.equal(null);
+				['DATE', 'TIME', 'LONG', 'VAR_STRING'].forEach((type) =>
+					expect(typeCast(column(type, 'x'), driverRead), type).to.equal(
+						'driver',
+					),
+				);
+			});
+
 			it("timezone: 'utc' also sets each new connection's session to UTC", async () => {
 				const opts = await captureDriverOptions(method, {
 					database: 'd',
@@ -65,6 +104,7 @@ describe('MySQLDialect timezone options', () => {
 				});
 				expect(opts).to.not.have.property('timezone');
 				expect(opts).to.not.have.property('initSql');
+				expect(opts).to.not.have.property('typeCast');
 			});
 
 			it('refuses utc together with disableTimezone', async () => {
