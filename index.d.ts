@@ -66,6 +66,38 @@ export declare function transactionLocal<T>(
 	factory: () => T,
 ): T | null;
 
+/** `code` of a TransactionCancelledError */
+export declare const TRANSACTION_CANCELLED: 'YASS_TRANSACTION_CANCELLED';
+
+/**
+ * What a transaction cancelled with `tx.cancel(reason)` rejects with: the
+ * `transaction()` call, the statement in flight and every later statement.
+ */
+export declare class TransactionCancelledError extends Error {
+	constructor(reason?: unknown);
+	readonly code: 'YASS_TRANSACTION_CANCELLED';
+	/** The reason given to cancel(), also the error's `cause` */
+	readonly reason: unknown;
+	/** Set when the transaction got past BEGIN (always, for a cancel) */
+	transactionBegan?: boolean;
+}
+
+/** The handle a `transaction()` callback gets */
+export type TransactionHandle = DbHandle & {
+	/**
+	 * Cancels the root transaction, synchronously and for good: no COMMIT is
+	 * sent and every later statement rejects with a TransactionCancelledError;
+	 * the connection's socket is closed (the server rolls back) and it is
+	 * discarded from the pool, with no second connection. `transaction()`
+	 * rejects at once. Works from a nested handle or an `Object.create(tx)`.
+	 * Returns false (and does nothing) once the root is already doomed, COMMIT
+	 * has been sent or the transaction has ended.
+	 */
+	cancel(reason?: unknown): boolean;
+	/** True once the root transaction has been cancelled */
+	isDoomed(): boolean;
+};
+
 /**
  * The hidden property holding when an instance's data was read
  * (`performance.now()` on this process): when the query was issued, or the
@@ -309,7 +341,7 @@ export type DbHandle = {
 	) => Promise<T[]>;
 	/** Run work atomically on one physical connection; nested calls use savepoints. */
 	transaction: <T>(
-		callback: (tx: DbHandle) => Promise<T> | T,
+		callback: (tx: TransactionHandle) => Promise<T> | T,
 		options?: TransactionOptions,
 	) => Promise<T>;
 	search: (

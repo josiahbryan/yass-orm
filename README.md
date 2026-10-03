@@ -214,6 +214,48 @@ portable isolation levels, `readOnly`, PostgreSQL `deferrable`, SQLite
 MySQL/MariaDB and PostgreSQL and immediate mode on SQLite. Pass
 `{ useTransaction: false }` in its existing options position to opt out.
 
+### Cancelling a transaction (`tx.cancel(reason)`)
+
+To stop a transaction from outside its body (a lock holder past its deadline),
+call `cancel(reason)` on its handle. It needs no second connection, so it works
+when the pool is at size 1 or exhausted:
+
+```javascript
+const { TransactionCancelledError } = require('yass-orm');
+
+const work = dbh.transaction(async (tx) => {
+  setTimeout(() => tx.cancel(new Error('hold deadline')), 5000);
+  await tx.pquery('SELECT id FROM fences WHERE id = :id FOR UPDATE', { id });
+  await somethingSlow();
+});
+// rejects with a TransactionCancelledError (err.reason / err.cause: the Error above)
+```
+
+- The root transaction is **doomed at once** (synchronously, for good): no
+  `COMMIT` is ever sent, and every later statement on the handle rejects with
+  the `TransactionCancelledError` without being sent. `tx.isDoomed()` reports it.
+- The leased connection's **socket is closed**, so the server rolls back and
+  releases the locks, and the connection is **discarded** from the pool, not
+  returned (the pool makes a new one).
+- **`transaction()` rejects at once** with the error (`code:
+  'YASS_TRANSACTION_CANCELLED'`), even if the body is awaiting something else,
+  and so does a statement in flight. Whatever the body does afterwards is
+  ignored.
+- It works from a nested transaction's handle and from an `Object.create(tx)`
+  wrapper, and dooms the root. It returns `true` when it doomed the
+  transaction. It returns `false`, doing nothing, if the root was already
+  cancelled, if `COMMIT` has been sent, or once the transaction has ended (its
+  connection may be serving someone else by then).
+- `retryIfConnectionLost` never runs a cancelled transaction again.
+  `transaction({ maxRetries })` retries it only when the reason (its `cause`)
+  is itself a retryable error, such as a deadlock.
+- A statement still **running on the server** when you cancel (blocked on a
+  lock, or a long query) is noticed by the server only when it ends: bound
+  those with the server's own timeouts (`innodb_lock_wait_timeout`,
+  Postgres `statement_timeout`). A transaction idle between statements, the
+  usual way a lock is held, is rolled back at once. On SQLite (no socket) the
+  root is doomed and rolled back.
+
 ### Model-level binding (`{ tx }`)
 
 Model methods accept the transaction handle directly, so several model writes
@@ -1032,6 +1074,9 @@ await OrgModel.create({ name: 'Acme', owner: user }); // typed fields; a link ta
 ## Recent changes
 
 ---
+- 2026-10-03 (unreleased)
+  - (feat) **`tx.cancel(reason)`: cancel a transaction without a second connection** (for Tessera's per-tenant authority fence, `auth/docs/2026-10-03-tenant-authority-fence.md`, C6: a writer past its hold deadline must be stopped even when the pool is at size 1 or exhausted, and must never commit late). A transaction handle (root, nested, or an `Object.create` of one: the root is found from the inherited transaction state, not by identity) has `cancel(reason)` and `isDoomed()`. `cancel` dooms the root synchronously, so no `COMMIT` is sent afterwards (the doom is checked in the same tick that `COMMIT` is sent) and every later statement rejects without being sent. It then closes the leased socket, so the server rolls back on disconnect and releases the locks, and discards the connection from the pool: on MySQL it destroys the socket itself, because the driver's `destroy()` opens a second connection to `KILL` a statement in flight; on Postgres it releases the client with an error, so the pool drops it, and destroys its stream. `transaction()` rejects at once with the new **`TransactionCancelledError`** (`code: 'YASS_TRANSACTION_CANCELLED'`, `reason` and `cause` = the reason), and so does a statement in flight; the body's later outcome is ignored, and no rollback, cleanup or release is attempted on the discarded connection. `pquery` passes the error through unwrapped and unlogged. `cancel` returns `false` and does nothing once the root is doomed, `COMMIT` has been sent or the transaction has ended (from then on its connection may be reused, so a late cancel never touches it). The error has `transactionBegan`, so `retryIfConnectionLost` never retries it; `transaction({ maxRetries })` retries it only if the reason is itself retryable (it walks `cause`). Not covered: a statement executing on the server when the cancel comes (a lock wait, a long query) is noticed only when it ends, so bound it with the server's timeouts. SQLite has no socket: the root is doomed and rolled back. Exported from the package root and typed (`TransactionHandle`, the type of a `transaction()` callback's handle, adds `cancel` and `isDoomed`).
+  - (test) `test/transaction.cancel.test.js` (live, MySQL and in `npm run test:postgres`): a cancel while the transaction holds a row lock and an uncommitted `UPDATE` lets a waiting connection take the lock and see the original row, and the server session is gone; at pool size 1, a query queued behind the transaction runs on a new connection, and so do the next ones, and a whole transaction works; a cancel after the commit returns `false` and the next query reuses the same session; a body that cancels, catches the next statement's error and returns sends no `COMMIT` (spied) and commits nothing; the doom is synchronous (an `Object.create` wrapper cancels; the next statement rejects in the same tick without reaching the connection); a nested handle's cancel dooms the root even when the outer body catches; a statement in flight rejects with the cancel error; `retryIfConnectionLost` runs it once. `test-d/transaction-cancel.test-d.ts`. Red first (no `cancel`).
 - 2026-09-26 (unreleased)
   - (fix) **MySQL/MariaDB: a `DATETIME` in the repeated hour at the end of daylight saving read back an hour early.** yass writes UTC wall clocks and had the `mariadb` driver (2.5) read them as UTC (`timezone: 'Etc/GMT+0'`), but the driver does that by converting the UTC wall clock to a *local* wall-clock string and parsing it again, so in a process whose time zone has daylight saving the hour that happens twice at fall-back collapsed onto its first occurrence: in `America/Chicago`, `'2030-11-03 07:30:00.456'` (01:30 CST) came back as `2030-11-03T06:30:00.456Z` (01:30 CDT), an hour early and out of order with the row before it. Every other hour, and every process in UTC (yass sets `TZ=UTC` when `lib/dbh.js` is loaded, unless the app changes it later), was right. The MySQL dialect now gives the driver a `typeCast` (`readUtcDateTime`, on pools and single connections) that reads `DATETIME` and `TIMESTAMP` columns as the UTC instant they spell (`new Date('<value>Z')`; NULL and zero dates are still `null`, and microseconds are still cut to milliseconds). Everything else is read by the driver as before: a `DATE` is still local midnight (not affected: it is never shifted across a change, but in a non-UTC process it is that zone's midnight, not UTC's). The write path, `timezone: 'utc'`, Postgres and SQLite are unchanged; `disableTimezone` still sends no time zone options (and no `typeCast`).
   - (test) `test/dbh.mysql-datetime-dst.test.js` (live MySQL, in a child process running in `America/Chicago`, `test/fixtures/mysql-dst-probe.js`): `DATETIME(3)` values at `2030-11-03T06:30:00.123Z` and `07:30:00.456Z` (both 01:30 local) and `2030-03-10T08:30:00.789Z` (after spring-forward), written out of order through a model, read back exactly and in order through `pquery`, `Model.get` and a single `createConnection()`, with `timezone` unset and with `'utc'` (then also a `TIMESTAMP(3)` column); red before the fix (`07:30:00.456Z` read as `06:30:00.456Z`). `test/MySQLDialect.createPool-timezone.test.js`: the `typeCast` on both pools and connections (DATETIME, TIMESTAMP, microseconds, NULL, zero date, other types left to the driver), and none with `disableTimezone`.

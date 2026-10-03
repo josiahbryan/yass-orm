@@ -76,6 +76,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`tx.cancel(reason)` and `tx.isDoomed()`** on a transaction handle (also a
+  nested one, or an `Object.create` of one): cancel a transaction without a
+  second connection. The root is doomed at once, so no `COMMIT` is sent and
+  every later statement rejects unsent. The socket is closed, so the server
+  rolls back and releases the locks, and the connection is discarded from the
+  pool. `transaction()` rejects at once with the new
+  **`TransactionCancelledError`** (`code: 'YASS_TRANSACTION_CANCELLED'`,
+  `reason`/`cause`). It returns `false` and does nothing once `COMMIT` is sent
+  or the transaction has ended. MySQL/MariaDB and Postgres; on SQLite it dooms
+  and rolls back. A statement already running on the server ends only on the
+  server's own timeouts. See README *Transactions*.
 - **`sqlHelpers.ensureLockTable(db)`**: makes `lockKey`'s table if missing,
   outside any transaction; call it at startup when you don't run schema sync.
   Schema sync now creates the table too, so a project that doesn't use
