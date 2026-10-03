@@ -31,6 +31,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Postgres keeps a collation's name as written.** The SQL transformer
+  round-trips a query through `node-sql-parser`, which kept a collation's name
+  but not its quotes: `COLLATE "C"` went out as `COLLATE C`, which Postgres
+  folds to `c` and rejects (`collation "c" does not exist`). A `COLLATE` on a
+  placeholder (`name < :bound COLLATE "C"`) was dropped outright, so the
+  comparison silently ran under the column's collation. Each collation name now
+  goes through the parser as a stand-in (`__yass_collate_<n>__`) and is put back
+  exactly as written, quotes and case included (a backtick-quoted one becomes
+  double-quoted, like any backtick identifier). When the parser loses one, the
+  query takes the scanner path, which leaves every `COLLATE` as written.
+
 - **`lockKey` no longer starves its own pool.** A key's first lock in a
   process inserted the key's row from the same pool the caller's transaction
   held a connection of: at pool size 1 it waited on itself, and P
