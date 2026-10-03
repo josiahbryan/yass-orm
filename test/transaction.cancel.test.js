@@ -51,6 +51,31 @@ const sessionAlive = async (handle, id) => {
 	return Number(rows[0].n) > 0;
 };
 
+// Whether the server session `id` is waiting on a row lock right now
+const lockWaiting = async (handle, id) => {
+	const rows = await handle.pquery(
+		isPostgres()
+			? 'SELECT COUNT(*) AS n FROM pg_locks WHERE pid = :id AND NOT granted'
+			: "SELECT COUNT(*) AS n FROM information_schema.innodb_trx WHERE trx_mysql_thread_id = :id AND trx_state = 'LOCK WAIT'",
+		{ id },
+	);
+	return Number(rows[0].n) > 0;
+};
+
+// A barrier, not a sleep: returns once the server reports session `id`
+// waiting on a lock (polled on `handle`, another connection), or throws.
+const untilLockWaiting = async (handle, id, timeoutMs = 10000) => {
+	const deadline = Date.now() + timeoutMs;
+	// eslint-disable-next-line no-await-in-loop
+	while (!(await lockWaiting(handle, id))) {
+		if (Date.now() > deadline) {
+			throw new Error(`session ${id} never waited on a lock`);
+		}
+		// eslint-disable-next-line no-await-in-loop
+		await tick(20);
+	}
+};
+
 const lockRow = (tx, id) =>
 	tx.pquery(`SELECT id, value FROM ${T()} WHERE id = :id FOR UPDATE`, { id });
 
@@ -140,12 +165,14 @@ describe('transactions: cancel(reason)', function cancelSuite() {
 
 		// Another connection waits on the row lock the transaction holds
 		let waiterGotLock = false;
+		const waiterSession = gate();
 		const waiter = conn.transaction(async (tx2) => {
+			waiterSession.open(await sessionId(tx2));
 			const rows = await lockRow(tx2, 'row');
 			waiterGotLock = true;
 			return rows[0].value;
 		});
-		await tick(300);
+		await untilLockWaiting(conn, await waiterSession.promise);
 		expect(waiterGotLock).to.equal(false);
 
 		expect(handle.cancel(reason)).to.equal(true);
@@ -281,7 +308,9 @@ describe('transactions: cancel(reason)', function cancelSuite() {
 				}),
 			);
 			await writing.promise;
-			await tick(300); // the SELECT ... FOR UPDATE is waiting on the server
+			// The SELECT ... FOR UPDATE is waiting on the server (observed, not
+			// assumed after a sleep)
+			await untilLockWaiting(conn, txSession);
 
 			const cancelledAt = Date.now();
 			expect(handle.cancel(new Error('deadline'))).to.equal(true);
