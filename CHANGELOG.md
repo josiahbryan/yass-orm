@@ -31,6 +31,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`lockKey` no longer starves its own pool.** A key's first lock in a
+  process inserted the key's row from the same pool the caller's transaction
+  held a connection of: at pool size 1 it waited on itself, and P
+  transactions each locking a new key on a pool of P waited on each other
+  (`pool exhausted`). That insert, and the first `lockKey`'s check for
+  `yass_locks`, now run on a separate small pool per handle, the lock-key
+  pool: `lockKeyPoolSize` connections (new option, default 2,
+  `DEFAULT_LOCK_KEY_POOL_SIZE` in `lib/dbh.js`), made on first use, idle
+  connections reaped, closed by the handle's `end()` and
+  `closeAllConnections()`. It looks for the row before inserting, so on MySQL
+  it doesn't wait behind a transaction holding an existing key, and
+  concurrent first locks of a key share one insert. A handle that locks can
+  hold `lockKeyPoolSize` more server connections. SQLite is unchanged.
 - **`find()`, `fromSql()` and `queryCallback()` honour `{ tx }`.** They ran on
   another pooled connection, so inside a transaction they missed its
   uncommitted rows, and at pool size 1 they waited on it until the acquire

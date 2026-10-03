@@ -794,8 +794,12 @@ consume:
 | `minimumIdle` | driver default (`= connectionLimit`) | Floor — connections the pool keeps open even when idle. |
 | `acquireTimeout` | driver default (10s) for the driver's per-query acquire; **the first-connect probe is bounded at 45s by default** (see below) | How long an acquire waits for a free connection before failing with errno 45028. |
 | `idleTimeout` | `600` (seconds) | How long an idle connection may sit before the pool reaps it. Must be a positive whole number; `0` is rejected (the driver reads falsy as unset and substitutes 1800). |
+| `lockKeyPoolSize` | `2` (`DEFAULT_LOCK_KEY_POOL_SIZE`, `lib/dbh.js`) | Size of the handle's separate lock-key pool: the one `sqlHelpers.lockKey` makes a new key's row on, outside the caller's transaction. Made on the handle's first `lockKey`, closed with the handle (`end()`, `closeAllConnections()`), `minimumIdle: 0` (idle connections are reaped). A whole number, 1 or more. MySQL and Postgres only. |
 
-All four can be set in `.yass-orm.js` or passed per call as `dbh({ ... })`.
+All five can be set in `.yass-orm.js` or passed per call as `dbh({ ... })`. A
+handle that uses `lockKey` can hold up to `connectionLimit + lockKeyPoolSize`
+server connections; count that against MySQL's `max_connections` /
+Postgres's `max_connections`.
 
 **The first-connect probe can no longer hang forever (2.6.1).** For MySQL/MariaDB
 with `disableFullGroupByPerSession: true` (rubber prod + every schema-sync run),
@@ -935,7 +939,10 @@ const { rows } = await sql.readBack(conn, {
 Notes:
 
 - `lockKey` inserts the key's row outside the transaction (so two
-  transactions taking a new key don't deadlock) and never deletes it: use keys
+  transactions taking a new key don't deadlock), on the handle's own small
+  lock-key pool (`lockKeyPoolSize`, default 2; see *Connection pool sizing*),
+  never on the pool the transaction holds a connection of, and never deletes
+  it: use keys
   from a bounded or slowly growing set. Keys over 191 characters are hashed.
   It must run inside a transaction.
 - `yass_locks` must exist before a transaction that may lock is open: on
@@ -945,8 +952,8 @@ Notes:
   sync calls `await sql.ensureLockTable(conn)` at startup. Both check the
   catalog first (no DDL when it exists), once per handle and process, and are
   safe with several processes starting at once. Failing both, the first
-  `lockKey` creates it on the handle the transaction was opened on (never
-  inside the transaction); on MySQL that transaction then fails if it had
+  `lockKey` creates it from the lock-key pool of the handle the transaction
+  was opened on (never inside the transaction); on MySQL that transaction then fails if it had
   read something, and `transaction(fn, { maxRetries })` runs it again (the
   error is retryable).
 - `upsertWhere` is two statements. A unique violation on another key than
@@ -1103,6 +1110,8 @@ await OrgModel.create({ name: 'Acme', owner: user }); // typed fields; a link ta
 
 ---
 - 2026-10-03 (unreleased)
+  - (fix) **`lockKey` could starve its own pool** (found by Tessera: `pool exhausted` at `lockKey`'s row insert, and a chat insert locking one of 256 bucket keys under several concurrent transactions on Postgres). The first `lockKey` of a key in a process inserted the key's row on the root handle, so outside the transaction (that keeps two transactions taking a new key from deadlocking) but from the same pool the transaction already held a connection of. At pool size 1 the first lock of a new key waited on itself until the acquire timeout; with P transactions each locking a new key on a pool of P, each held one connection and waited for another. The first `lockKey` on a handle that hadn't made `yass_locks` did the same with its catalog read. Both now run on a separate small pool per handle, the **lock-key pool**: `lockKeyPoolSize` connections (new option, config or per `dbh()` call; default `DEFAULT_LOCK_KEY_POOL_SIZE` = 2, exported from `lib/dbh.js`), made on the handle's first `lockKey`, `minimumIdle: 0`, and closed by the handle's `end()` (so by `closeAllConnections()` too); a closed handle's `lockKey` rejects rather than open it again. It never waits for the caller's pool, so it can't starve it. The row step also looks before inserting: on MySQL the insert of an existing key waits behind any transaction holding it (another process's included) and would keep a lock-pool connection meanwhile; and concurrent first locks of one key in a process share one insert. The row is still made outside the transaction, so the deadlock-free and Postgres snapshot behaviour is unchanged. A process now opens up to `lockKeyPoolSize` more connections per handle that locks. SQLite: unchanged (`lockKey` does nothing).
+  - (test) `test/sql-helpers.lock-pool.test.js` (live, MySQL and in `npm run test:postgres`), each bounded so a starved pool fails rather than hangs: at pool size 1 a transaction locks a never-seen key, with `ensureLockTable` at startup and without; P = 3 transactions on a pool of 3, all holding their connection before any locks a new key, all finish, and the handle adds at most P + `DEFAULT_LOCK_KEY_POOL_SIZE` sessions; 3 × `connectionLimit` transactions on a default-size pool each lock a new key; 512 transactions over 256 never-seen bucket keys on a pool of 3 finish with one row per bucket; two transactions racing for one new key on a pool of 2 still hold it one at a time; and after `end()` the handle's two sessions (its pool's and its lock pool's) are gone from the server (`pg_stat_activity` / `PROCESSLIST`). All seven red first (pool acquire timeouts); the close test also fails when `end()` skips the lock pool (checked by mutation).
   - (test) `test/transaction.cancel.test.js`: the two tests that cancel while a statement waits on a row lock (the in-flight one at pool size 1, and the held-lock one's waiter) no longer sleep 300ms and assume the statement is waiting. They wait until the server reports the session waiting on a lock, polled from another connection (`information_schema.innodb_trx` `trx_state = 'LOCK WAIT'` on MySQL, an ungranted `pg_locks` row on Postgres, failing after 10s), and only then cancel or check.
   - (fix) **`find()`, `fromSql()` and `queryCallback()` ignored `{ tx }`** (found by Tessera's fence coverage). They read on another pooled connection, so inside a transaction they didn't see its uncommitted rows, and at pool size 1 they waited on the transaction's own connection until the acquire timeout. `find(query, { tx })` now runs every query on `tx`: the main query, and the queries its hooks make through the context (`ctx.dbh`, `ctx.retryIfConnectionLost`, `ctx.queryValues` / `queryValuesPlain`, and the exported `promiseFilter`, which now uses the context's runner). It uses no lost-connection retry, as `get`/`search` already did (`Model._runOn`), and `ctx.tx` is the handle. Rows are inflated with `{ tx }`, so their links resolve on it. `fromSql(where, { tx, ...params })` reads on `tx` when it is a transaction handle (new `isTransactionHandle` in `lib/transactions.js`); any other value is still the named parameter `:tx`. Its instances are inflated with `{ tx }`. `queryCallback(callback, { tx })` takes a new options argument. Without `tx`, nothing changes. `get`, `search`, `searchOne` and `findOrCreate` already honoured `tx`. `withDbh` hands over a pooled handle by design (inside a transaction, use `tx`). Typed in `index.d.ts`.
   - (test) `test/model.read-tx.test.js` (live, MySQL and in `npm run test:postgres`): `find()` inside a transaction sees its uncommitted row, which is invisible outside it and gone after the rollback. Its hooks' four query paths each see it. `fromSql()` and `queryCallback()` see it, and `fromSql` still takes a plain `:tx` parameter. At pool size 1 (2s acquire timeout), `find`, `fromSql`, `queryCallback`, `search`, `searchOne` and `get` inside the transaction all complete and see the row. `test-d/read-tx.test-d.ts`. Red first (four of five; the `:tx` parameter case passed before).
