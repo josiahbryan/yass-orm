@@ -31,6 +31,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`find()`, `fromSql()` and `queryCallback()` honour `{ tx }`.** They ran on
+  another pooled connection, so inside a transaction they missed its
+  uncommitted rows, and at pool size 1 they waited on it until the acquire
+  timeout. `find(query, { tx })` runs every query, its hooks' included, on
+  `tx`. `fromSql(where, { tx, ...params })` treats `tx` as the transaction only
+  when it is a transaction handle. `queryCallback(callback, { tx })` is new.
 - **MySQL/MariaDB: a `DATETIME` in the repeated hour at the end of daylight
   saving read back an hour early** when the process time zone has daylight
   saving (in `America/Chicago`, `2030-11-03 07:30` UTC came back as 06:30).

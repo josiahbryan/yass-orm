@@ -588,7 +588,12 @@ export interface DatabaseObjectStatic<
 	/** Feathers-like search packet; returns raw rows (not instances). */
 	find(
 		query: AnyRecord,
-		opts?: { promisePoolMapConfig?: PromisePoolMapConfig; [key: string]: any },
+		opts?: {
+			promisePoolMapConfig?: PromisePoolMapConfig;
+			/** Run every query (the hooks' too) on this transaction */
+			tx?: DbHandle;
+			[key: string]: any;
+		},
 	): Promise<FinderResult<AnyRecord>>;
 
 	allowedFindParams(): string[] | null;
@@ -621,7 +626,11 @@ export interface DatabaseObjectStatic<
 	/** Execute raw SQL and return typed instances */
 	fromSql(
 		whereClause?: string,
-		args?: AnyRecord & { promisePoolMapConfig?: PromisePoolMapConfig },
+		args?: AnyRecord & {
+			promisePoolMapConfig?: PromisePoolMapConfig;
+			/** A transaction handle to read on (any other value is a named parameter) */
+			tx?: unknown;
+		},
 	): Promise<Array<TInstance>>;
 
 	/** Search for multiple records matching query */
@@ -823,7 +832,12 @@ export declare class DatabaseObject {
 	/** Feathers-like search packet; returns raw rows (not instances). */
 	static find(
 		query: AnyRecord,
-		opts?: { promisePoolMapConfig?: PromisePoolMapConfig; [key: string]: any },
+		opts?: {
+			promisePoolMapConfig?: PromisePoolMapConfig;
+			/** Run every query (the hooks' too) on this transaction */
+			tx?: DbHandle;
+			[key: string]: any;
+		},
 	): Promise<FinderResult<AnyRecord>>;
 
 	static allowedFindParams(): string[] | null;
@@ -857,7 +871,11 @@ export declare class DatabaseObject {
 	static fromSql<T extends AnyModelClass>(
 		this: T,
 		whereClause?: string,
-		args?: AnyRecord & { promisePoolMapConfig?: PromisePoolMapConfig },
+		args?: AnyRecord & {
+			promisePoolMapConfig?: PromisePoolMapConfig;
+			/** A transaction handle to read on (any other value is a named parameter) */
+			tx?: unknown;
+		},
 	): Promise<Array<InstanceType<T>>>;
 
 	static search<T extends AnyModelClass>(
