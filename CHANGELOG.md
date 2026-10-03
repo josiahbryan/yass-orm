@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed (breaking, major: 3.0)
 
+- **`mariadb` is pinned to exactly `2.5.5`** (was `^2.5.5`): `tx.cancel()`
+  closes a MySQL connection's socket through the driver's
+  `connection.__tests.getSocket()`. A transaction on a driver without it fails
+  before `BEGIN`, rather than let a cancel open a second connection to `KILL`
+  a statement.
+
 - **`pg`, `better-sqlite3` and `node-sql-parser` are optional peer
   dependencies** (`peerDependenciesMeta` optional), no longer installed with
   yass-orm. Install the ones your dialects use: `pg` and `node-sql-parser` for
@@ -90,8 +96,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pool. `transaction()` rejects at once with the new
   **`TransactionCancelledError`** (`code: 'YASS_TRANSACTION_CANCELLED'`,
   `reason`/`cause`). It returns `false` and does nothing once `COMMIT` is sent
-  or the transaction has ended. MySQL/MariaDB and Postgres; on SQLite it dooms
-  and rolls back. A statement already running on the server ends only on the
+  or the transaction has ended. A cancelled transaction is never retried
+  (not even by `maxRetries` when its reason is a deadlock or lock-wait
+  timeout). MySQL/MariaDB and Postgres; on SQLite it dooms and rolls back. A statement already running on the server ends only on the
   server's own timeouts. See README *Transactions*.
 - **`sqlHelpers.ensureLockTable(db)`**: makes `lockKey`'s table if missing,
   outside any transaction; call it at startup when you don't run schema sync.
