@@ -7,6 +7,10 @@
 //   brew install postgresql@16 && brew services start postgresql@16
 //   psql -d postgres -c "CREATE ROLE yass LOGIN PASSWORD 'testsys1' SUPERUSER"
 //   createdb -O yass test
+//
+// 5432 is Postgres' default port, where a live server usually runs, so the
+// suite refuses it unless you opt in (README, *The test database guard*):
+//   YASS_TEST_ALLOW_PORT=5432 npm run test:postgres
 
 // Override here so we don't have to rely on it being set for scripts in prod
 process.env.NODE_ENV = 'development';

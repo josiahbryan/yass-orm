@@ -76,6 +76,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Tests: a guard against running the suite on a live database.** Mocha
+  refuses to start when the test database's name doesn't have `test` as a
+  word, or its port is the server's default (3306, 5432) without
+  `YASS_TEST_ALLOW_PORT=<port>`. `npm run test:postgres` with the tracked
+  config (port 5432) now needs that opt-in. See README *The test database
+  guard*.
 - **`tx.cancel(reason)` and `tx.isDoomed()`** on a transaction handle (also a
   nested one, or an `Object.create` of one): cancel a transaction without a
   second connection. The root is doomed at once, so no `COMMIT` is sent and
