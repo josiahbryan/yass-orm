@@ -31,6 +31,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Schema sync of a `.nullable()` def against a NOT NULL column** no longer
+  throws `TypeError: bk.toUpperCase is not a function` (the comparator called a
+  string method on `.nullable()`'s numeric `null: 1`); the column is made
+  nullable. Known, separate: on Postgres a def that drops a `.default(...)`
+  doesn't converge (no `DROP DEFAULT`).
+
 - **Postgres keeps a collation's name as written.** The SQL transformer
   round-trips a query through `node-sql-parser`, which kept a collation's name
   but not its quotes: `COLLATE "C"` went out as `COLLATE C`, which Postgres
