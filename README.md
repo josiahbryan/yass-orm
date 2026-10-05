@@ -1109,6 +1109,10 @@ await OrgModel.create({ name: 'Acme', owner: user }); // typed fields; a link ta
 ## Recent changes
 
 ---
+- 2026-10-05 (unreleased)
+  - (fix) **Postgres string defaults converge on schema sync.** The catalog reports a literal such as `'ordinary'::character varying`, while the definition stores `ordinary`. The comparison now recognizes only whole quoted text/varchar literals (including doubled quote escaping) on Postgres string columns. An unchanged required default no longer reissues ALTER; changed defaults and SQL expressions still reconcile. MySQL and other default comparisons are unchanged. The pre-existing MySQL ALTER emitter's quote escaping and Postgres dropped-default limitation remain separate.
+
+---
 - 2026-10-04 (unreleased)
   - (fix) **Schema sync: a `.nullable()` def against a NOT NULL column threw** (found by Tessera). `.nullable()` stores `null: 1`, a number, and the column comparator's "NOT NULL written in lower case" carve-out called `bk.toUpperCase()` on it: `TypeError: bk.toUpperCase is not a function`, and the whole table's sync failed. It now compares `String(bk)`; making a NOT NULL column nullable just syncs (`DROP NOT NULL` on Postgres, `CHANGE` on MySQL).
   - (known) On Postgres, a column whose def drops a `.default(...)` doesn't converge: each sync issues `TYPE` and `DROP NOT NULL` again but never `DROP DEFAULT`, so the old default stays and the comparator keeps counting it. MySQL converges. Separate from the fix above (which made it reachable); a follow-up.

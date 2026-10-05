@@ -31,6 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Postgres casted string defaults converge during schema sync.** A catalog literal such as
+  `'ordinary'::character varying` compares by its string value, including doubled quotes, against
+  a declared text/varchar default. Changed defaults and SQL expressions still reconcile; other
+  dialects and non-string defaults are unchanged.
+
 - **Schema sync of a `.nullable()` def against a NOT NULL column** no longer
   throws `TypeError: bk.toUpperCase is not a function` (the comparator called a
   string method on `.nullable()`'s numeric `null: 1`); the column is made
