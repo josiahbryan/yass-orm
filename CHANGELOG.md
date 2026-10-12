@@ -31,6 +31,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Blob columns converge on Postgres** (found by Tessera). A column declared
+  `blob` or `longblob` (`t.string({ type: 'longblob' })`) is `bytea` in
+  Postgres' catalog, and the column comparator had no rule for that pair:
+  every sync re-ran `ALTER COLUMN ... TYPE BYTEA` (and its nullability) under
+  an ACCESS EXCLUSIVE lock, on every boot. It now compares `bytea` equal to
+  the blob types. (`tinyblob` and `mediumblob` are still created as `TEXT` on
+  Postgres and SQLite; making them binary alters existing columns, so it is a
+  separate, breaking change.)
+
 - **Postgres casted string defaults converge during schema sync.** A catalog literal such as
   `'ordinary'::character varying` compares by its string value, including doubled quotes, against
   a declared text/varchar default. Changed defaults and SQL expressions still reconcile; other

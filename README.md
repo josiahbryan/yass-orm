@@ -1109,6 +1109,12 @@ await OrgModel.create({ name: 'Acme', owner: user }); // typed fields; a link ta
 ## Recent changes
 
 ---
+- 2026-10-12 (unreleased)
+  - (fix) **Postgres: blob columns converge on schema sync** (found by Tessera, whose test harness refuses a schema change in a database it already synced). A column declared `blob` or `longblob` (`t.string({ type: 'longblob' })`) is `bytea` in the catalog, and the column comparator had no rule for that pair, so every sync re-ran `ALTER COLUMN ... TYPE BYTEA` and `DROP NOT NULL` under an ACCESS EXCLUSIVE lock, on every boot. `bytea` now compares equal to the blob types.
+  - (known) `tinyblob` and `mediumblob` have no entry in the Postgres and SQLite type maps, so they are created as `TEXT` (binary data in a text column) and don't converge on Postgres either. Mapping them to `BYTEA`/`BLOB` would alter existing text columns on the next sync (Postgres refuses that cast without `USING`), so it is a separate, breaking change with a migration note.
+  - (test) `test/schemaSync.blobAgainstBytea.test.js` (live, MySQL and in `npm run test:postgres`): a table with `blob` and `longblob` columns, nullable and not, synced twice; the second sync applies nothing. Red first on Postgres (3 columns re-altered).
+
+---
 - 2026-10-05 (unreleased)
   - (fix) **Postgres string defaults converge on schema sync.** The catalog reports a literal such as `'ordinary'::character varying`, while the definition stores `ordinary`. The comparison now recognizes only whole quoted text/varchar literals (including doubled quote escaping) on Postgres string columns. An unchanged required default no longer reissues ALTER; changed defaults and SQL expressions still reconcile. MySQL and other default comparisons are unchanged. The pre-existing MySQL ALTER emitter's quote escaping and Postgres dropped-default limitation remain separate.
 
