@@ -79,7 +79,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`triggerLockWaitTimeout` is no longer used.** Trigger DDL runs under
   `ddlLockWaitTimeout` like all other sync DDL; the reconciler's own
   `SET SESSION lock_wait_timeout` (which, on a pool, could land on a different
-  connection than the DDL) is no longer issued by schema sync.
+  connection than the DDL) is removed, along with `syncTableTriggers`'
+  internal `lockWaitTimeout` option and the config default. A config that
+  still sets `triggerLockWaitTimeout` is ignored.
 
 ### Fixed
 

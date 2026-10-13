@@ -196,7 +196,6 @@ describe('#YASS-ORM config loaded on first use', function lazyConfigSuite() {
 			'readonlyNodes',
 			'connectTimeout',
 			'connectionLimit',
-			'triggerLockWaitTimeout',
 		]);
 		expect(out.json).to.deep.equal(out.spreadJson);
 		expect(out.json).to.deep.equal(out.assigned);
@@ -210,7 +209,6 @@ describe('#YASS-ORM config loaded on first use', function lazyConfigSuite() {
 			port: 3306,
 			connectTimeout: 3000,
 			connectionLimit: 10,
-			triggerLockWaitTimeout: 60,
 		});
 		expect(out.hasHost).to.equal(true);
 		expect(out.commonFields).to.equal('function');

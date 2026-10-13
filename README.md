@@ -146,19 +146,11 @@ that guards `schemaSync.multiValuedIndex.test.js` and
 
 ### Lock-wait timeout
 
-`DROP` / `CREATE TRIGGER` take a metadata lock. Before trigger DDL the
-reconciler sets `SESSION lock_wait_timeout` (default 60s, override with
-`config.triggerLockWaitTimeout`) so a hot table cannot hang the sync --
-a timeout lands in the run's error list, not a stall. Restored to the
-prior value in a `finally`. If the SET itself fails (privilege / replica),
-sync continues with the session default and a warning — it does not abort
-the table.
-
-On a pooled handle (the usual case) that `SET` and the trigger DDL could land
-on different connections, so schema sync no longer issues it and
-`triggerLockWaitTimeout` is unused. Trigger DDL runs, like all schema-sync
-DDL, under `ddlLockWaitTimeout` on the connection that executes it: see
-*Schema sync and locks*.
+`DROP` / `CREATE TRIGGER` take a metadata lock. Trigger DDL runs, like all
+schema-sync DDL, under `ddlLockWaitTimeout` on the connection that executes
+it, so a hot table cannot hang the sync: see *Schema sync and locks*.
+`config.triggerLockWaitTimeout` is no longer read (the reconciler's own
+`SET SESSION` could land on a different pool connection than the DDL).
 
 ### Dialects
 
