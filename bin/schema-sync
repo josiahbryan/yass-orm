@@ -44,9 +44,11 @@ async function main() {
 
 				return await syncUtil.syncSchemaToDb(schema);
 			} catch (ex) {
+				// Stack only (the summary at the end carries the message): logging
+				// the error object itself could print a driver's connection config.
 				console.error(
 					`[${process.pid}] Unexpected error syncing ${definitionFile}:`,
-					ex,
+					(ex && ex.stack) || String(ex),
 				);
 				return {
 					table: schema && schema.table,
@@ -70,14 +72,9 @@ async function main() {
 
 main()
 	.then((results) => {
-		const totalErrors = results.reduce((sum, r) => sum + (r.failed || 0), 0);
-		if (totalErrors > 0) {
-			console.error(
-				`\n${totalErrors} schema-sync error(s) across ${results.length} table(s). Exiting non-zero.`,
-			);
-			process.exit(1);
-		}
-		process.exit(0);
+		// Lists every counted error (table, description, SQL, DB error), then
+		// the "N schema-sync error(s) ..." line; 1 when anything failed.
+		process.exit(syncUtil.reportSyncResults(results));
 	})
 	.catch((ex) => {
 		console.error(ex);

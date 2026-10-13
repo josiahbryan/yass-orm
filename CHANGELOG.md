@@ -85,6 +85,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`bin/schema-sync` prints every error it counts.** A failed sync ended
+  with only `N schema-sync error(s) across M table(s)`; trigger DDL failures
+  (e.g. MySQL errno 1419 refusing `CREATE TRIGGER`) were never logged at all.
+  It now prints a summary before that line, by table: each error's
+  description, SQL (first 300 chars) and the database error's code, errno and
+  message (never the error object, which can carry the connection config).
+  The per-table `Encountered errors syncing table ...` line no longer dumps
+  the error records as JSON; the summary is the list. A lock-table creation
+  failure is now recorded in `errors` as `{ table, description, sql, error }`
+  like the rest. `formatSyncErrorSummary(results)` and
+  `reportSyncResults(results)` are exported from `lib/sync-to-db` for callers
+  of `syncSchemaToDb()`.
+
 - **Blob columns converge on Postgres** (found by Tessera). A column declared
   `blob` or `longblob` (`t.string({ type: 'longblob' })`) is `bytea` in
   Postgres' catalog, and the column comparator had no rule for that pair:
