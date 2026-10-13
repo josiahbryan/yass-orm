@@ -154,6 +154,12 @@ prior value in a `finally`. If the SET itself fails (privilege / replica),
 sync continues with the session default and a warning — it does not abort
 the table.
 
+On a pooled handle (the usual case) that `SET` and the trigger DDL could land
+on different connections, so schema sync no longer issues it and
+`triggerLockWaitTimeout` is unused. Trigger DDL runs, like all schema-sync
+DDL, under `ddlLockWaitTimeout` on the connection that executes it: see
+*Schema sync and locks*.
+
 ### Dialects
 
 - **MySQL/MariaDB**: fully implemented. `dialect.supportsDeclaredTriggers === true`.
@@ -179,6 +185,48 @@ the table.
 - Author-facing `FOLLOWS` / `PRECEDES` keys: not exposed. The implicit
   ordering above is the contract; `FOLLOWS` is still emitted internally
   during a group rebuild.
+
+## Schema sync and locks (MySQL)
+
+Two things keep a sync from stalling a busy table.
+
+**One `ALTER` per table.** A table's column changes go out as one statement:
+`ALTER TABLE t CHANGE a ..., CHANGE b ..., ADD c ...` (and `DROP`s, under
+`YASS_ALLOW_DROP`). MySQL cannot change a column's type online, so every
+`ALTER` that carries one copies the whole table and blocks writes while it
+does; nine changed columns used to be nine copies and are now one. If the
+combined statement fails for a reason other than a lock wait or a lost
+connection (one column's data cannot be converted, say), sync falls back to one statement per column,
+so only that column fails and is reported. A change to `NOT NULL` that
+existing `NULL` rows would break is reported as before and left out of the
+combined statement. Postgres and SQLite are unchanged
+(`supportsCombinedColumnAlter` is the dialect's opt-in).
+
+**DDL fails fast on a lock wait.** DDL needs an exclusive metadata lock, and
+while it waits for one every other query on the table queues behind it;
+MySQL's default `lock_wait_timeout` is a year. Each DDL statement the sync
+issues runs on its own leased connection with `SET SESSION
+lock_wait_timeout` (restored before the connection goes back to the pool),
+so it fails with errno 1205 instead of waiting. It is then retried, and after
+the last attempt reported in the sync's errors with the table and statement
+named. When that was the table's column `ALTER`, the rest of that table's
+changes (its indexes) are skipped for this run; the sync goes on to the next
+table.
+
+The timeout also applies to the exclusive lock a table-copy `ALTER` takes at
+the *end* of its copy. A transaction that keeps the table open for longer
+than the timeout at that moment fails the `ALTER` after the copy is done.
+That attempt is not retried (it would copy the table again); raise
+`ddlLockWaitTimeout` for a sync you know has a long rebuild in it.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `ddlLockWaitTimeout` / `YASS_DDL_LOCK_WAIT_TIMEOUT` | `10` | Seconds one attempt may wait. Always on: anything but a whole number >= 1 means the default. |
+| `ddlLockWaitRetries` / `YASS_DDL_LOCK_WAIT_RETRIES` | `2` | Extra attempts after the first (`0`: none). |
+| `ddlLockWaitRetryDelayMs` | `2000` | Pause before the first retry; doubles each time. |
+
+The environment variable wins over the config value. Postgres has no
+equivalent yet (`lock_timeout` would be the one); its sync DDL is unchanged.
 
 ## Transactions
 

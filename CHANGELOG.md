@@ -29,6 +29,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   --compile`) still bundles the installed ones, `mariadb` included, and builds
   without the missing ones.
 
+### Changed (schema sync on MySQL)
+
+- **A table's column changes go out as ONE `ALTER`.** `CHANGE`s, `ADD`s and
+  (under `YASS_ALLOW_DROP`) `DROP`s for one table are one
+  `ALTER TABLE t CHANGE ..., CHANGE ..., ADD ...`, where each `CHANGE` used to
+  be its own statement. A type change cannot be done online, so each of those
+  was a full table copy that blocks writes: nine `varchar(255)` to `longtext`
+  changes and an `ADD` on one hot table were ten rebuilds, and are now one.
+  Extends the 2.8.0 ADD batching (`buildAddColumnPlan`) with
+  `buildColumnAlterPlan`; opt-in per dialect through
+  `supportsCombinedColumnAlter` / `generateAlterColumns` (MySQL only;
+  Postgres and SQLite are unchanged). The heal ledger stays one single-column
+  statement per column. If the combined statement fails for anything but a
+  lock wait or a lost connection, sync falls back to the per-statement path,
+  so one bad column still fails alone. A `NOT NULL` change blocked by the
+  existing-`NULL` preflight is reported as before and left out of the plan (it no longer
+  drops a prefix-less index for a TEXT change that is not going to run).
+  `applied` counts statements, so such a table now adds 1 to it.
+- **Sync DDL fails fast on a lock wait, and retries.** Every DDL statement
+  schema sync issues (`ALTER`, `CREATE`/`DROP INDEX`, `CREATE TABLE`, trigger
+  and function DDL, the heal re-issue) runs under
+  `SET SESSION lock_wait_timeout = 10`, on a connection leased for it so the
+  `SET` and the DDL cannot land on different pool connections, and the
+  session's own value is restored before the connection is released. A
+  statement that times out (errno 1205) is retried twice (2s, then 4s later),
+  then reported in the sync's errors with the table and statement named. On
+  by default with no off switch; `ddlLockWaitTimeout` (seconds),
+  `ddlLockWaitRetries` and `ddlLockWaitRetryDelayMs` in the config, or
+  `YASS_DDL_LOCK_WAIT_TIMEOUT` / `YASS_DDL_LOCK_WAIT_RETRIES`, change the
+  numbers. A statement that ran for more than twice the timeout before it
+  timed out is not retried: a table-copy `ALTER` takes its exclusive lock at
+  the end of the copy, and a retry would repeat the copy. After a column
+  `ALTER` gives up on a lock, the rest of that table's changes in this sync
+  (its index DDL, the heal pass) are skipped with a warning, since each would
+  wait on the same lock; once any statement on a table has given up, later
+  statements on it in that sync are refused at once
+  (`code: 'YASS_DDL_TABLE_BUSY'`). A connection whose timeout cannot be
+  restored is destroyed, not returned to the pool. New dialect hooks:
+  `withSchemaChangeSession`, `isLockWaitTimeoutError` (pass-through / `false`
+  by default, so Postgres and SQLite are unchanged). See README *Schema sync
+  and locks*.
+- **`triggerLockWaitTimeout` is no longer used.** Trigger DDL runs under
+  `ddlLockWaitTimeout` like all other sync DDL; the reconciler's own
+  `SET SESSION lock_wait_timeout` (which, on a pool, could land on a different
+  connection than the DDL) is no longer issued by schema sync.
+
 ### Fixed
 
 - **Blob columns converge on Postgres** (found by Tessera). A column declared
