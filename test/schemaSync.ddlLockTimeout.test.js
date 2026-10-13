@@ -531,6 +531,77 @@ describe('#schemaSync DDL lock-wait timeout (db-backed)', function lockTimeoutSu
 		expect(await hasColumn(table, 'notice')).to.equal(true);
 	});
 
+	// The errno 1170 guard drops a prefix-less index before changing its
+	// column to TEXT. If the drop got its lock and the change then did not,
+	// the table was given up for the sync, index pass included, and the index
+	// (with any UNIQUE rule it carried) stayed gone until the next sync.
+	it('keeps a prefix-less index when the TEXT change it was dropped for cannot get its lock', async () => {
+		const table = `yass_ddl_lock_i_${uuid().replace(/-/g, '')}`;
+		tables.push(table);
+		const indexed =
+			(type) =>
+			({ types: t }) => ({
+				table,
+				schema: { id: t.idKey, body: t[type] },
+				indexes: { body: ['body'] },
+			});
+		await sync(indexed('string'));
+
+		config.ddlLockWaitTimeout = 1;
+		config.ddlLockWaitRetries = 0;
+		config.ddlLockWaitRetryDelayMs = 50;
+
+		// Take the table's metadata lock the moment a standalone DROP INDEX on
+		// it has run, so whatever comes after it waits.
+		const proto = MySQLDialect.prototype;
+		const originalSession = proto.withSchemaChangeSession;
+		let blocker;
+		proto.withSchemaChangeSession = async function spy(handle, opts, fn) {
+			let ran;
+			const result = await originalSession.call(this, handle, opts, (session) =>
+				fn(
+					Object.assign(Object.create(session), {
+						pquery: (stmt, ...rest) => {
+							ran = stmt;
+							return session.pquery(stmt, ...rest);
+						},
+					}),
+				),
+			);
+			if (!blocker && /^DROP INDEX/.test(`${ran}`)) {
+				blocker = await holdMetadataLock(table);
+			}
+			return result;
+		};
+		const originalError = console.error;
+		const originalWarn = console.warn;
+		console.error = () => {};
+		console.warn = () => {};
+		let result;
+		try {
+			result = await sync(indexed('text'));
+		} finally {
+			proto.withSchemaChangeSession = originalSession;
+			console.error = originalError;
+			console.warn = originalWarn;
+		}
+		if (blocker) {
+			await blocker.release();
+		}
+
+		const indexRows = await (
+			await dbh()
+		).pquery(`SHOW INDEX FROM \`${table}\` WHERE Key_name = 'body'`);
+		expect(
+			indexRows,
+			`index 'body' is gone; sync errors: ${JSON.stringify(result.errors)}`,
+		).to.have.length.greaterThan(0);
+		expect(result.errors, JSON.stringify(result.errors)).to.deep.equal([]);
+		// One ALTER both dropped the index and changed the column; the index
+		// pass then recreated it with a prefix.
+		expect(indexRows[0].Sub_part).to.be.greaterThan(0);
+	});
+
 	it('retries, and succeeds once the lock is released', async () => {
 		const table = `yass_ddl_lock_b_${uuid().replace(/-/g, '')}`;
 		tables.push(table);

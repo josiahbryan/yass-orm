@@ -99,6 +99,28 @@ describe('#schemaSync buildColumnAlterPlan', () => {
 		]);
 	});
 
+	// The errno 1170 guard's index drops go in the same ALTER as the change
+	// they make room for, so a change that cannot get its lock leaves the
+	// index in place (dropped on its own first, nothing would recreate it).
+	it('puts index drops in the combined ALTER, and first in the fallback', () => {
+		const plan = buildColumnAlterPlan({
+			dialect: mysql,
+			tableName: 'widgets',
+			changeFieldList: [changes[0]],
+			dropIndexList: ['body'],
+		});
+		expect(plan.statements).to.deep.equal([
+			'ALTER TABLE `widgets` DROP INDEX `body`, CHANGE `body` `body` longtext',
+		]);
+		expect(plan.fallbackStatements).to.deep.equal([
+			mysql.generateDropIndex('widgets', 'body'),
+			mysql.generateAlterModifyColumn('widgets', changes[0]),
+		]);
+		expect(plan.ledger.map((e) => [e.col, e.type])).to.deep.equal([
+			['body', 'CHANGE'],
+		]);
+	});
+
 	it('marks only TEXT/BLOB changes textLike (the errno 1170 index guard reads it)', () => {
 		const plan = buildColumnAlterPlan({
 			dialect: mysql,

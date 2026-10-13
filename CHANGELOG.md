@@ -46,6 +46,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so one bad column still fails alone. A `NOT NULL` change blocked by the
   existing-`NULL` preflight is reported as before and left out of the plan (it no longer
   drops a prefix-less index for a TEXT change that is not going to run).
+  The prefix-less indexes the errno 1170 guard drops before a TEXT change go
+  in the same combined `ALTER` (`DROP INDEX ..., CHANGE ...`), so a change
+  that cannot get its lock leaves them in place (dropped on their own first,
+  a lock timeout on the change skipped the index pass and left the table
+  without them, UNIQUE rule included, until the next sync). On the
+  per-statement path they still run first, one at a time.
   `applied` counts statements, so such a table now adds 1 to it.
 - **Sync DDL fails fast on a lock wait, and retries.** Every DDL statement
   schema sync issues (`ALTER`, `CREATE`/`DROP INDEX`, `CREATE TABLE`, trigger
