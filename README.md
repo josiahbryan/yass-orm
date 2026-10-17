@@ -1149,6 +1149,11 @@ await OrgModel.create({ name: 'Acme', owner: user }); // typed fields; a link ta
 ## Recent changes
 
 ---
+- 2026-10-17 (unreleased)
+  - (perf) **Postgres: a statement is translated once, not on every query** (found by Tessera: 55% of its API's busy time was `transformSqlForPostgres` and `node-sql-parser`, run by `pquery` on the same few hundred statements thousands of times). The translation now goes through a bounded LRU (`lib/sql-transform/transformCache.js`) keyed by the SQL text and the shape of the params: their names, or whether a positional array is empty, since `?` is a placeholder only then. Values are never part of the key, so output is byte-identical to the uncached one (checked across the transformer's test corpus). A translation that throws is never kept, and each caller gets a copy of the result. `sqlTransformCacheSize` (config) sets the bound; default `DEFAULT_TRANSFORM_CACHE_SIZE` = 5000, `0` turns the cache off. Measured on a mixed set of three statements: about 530 us per translation before, about 2 us after. SQLite and MySQL are unchanged.
+  - (test) `test/sqlTransformCache.postgres.test.js` (in `npm run test:postgres`): the parser runs once for a repeated statement; different param shapes are different entries; the LRU evicts at its bound; a throw is not cached; cache on and off give identical output.
+
+---
 - 2026-10-12 (unreleased)
   - (fix) **Postgres: blob columns converge on schema sync** (found by Tessera, whose test harness refuses a schema change in a database it already synced). A column declared `blob` or `longblob` (`t.string({ type: 'longblob' })`) is `bytea` in the catalog, and the column comparator had no rule for that pair, so every sync re-ran `ALTER COLUMN ... TYPE BYTEA` and `DROP NOT NULL` under an ACCESS EXCLUSIVE lock, on every boot. `bytea` now compares equal to the blob types.
   - (known) `tinyblob` and `mediumblob` have no entry in the Postgres and SQLite type maps, so they are created as `TEXT` (binary data in a text column) and don't converge on Postgres either. Mapping them to `BYTEA`/`BLOB` would alter existing text columns on the next sync (Postgres refuses that cast without `USING`), so it is a separate, breaking change with a migration note.

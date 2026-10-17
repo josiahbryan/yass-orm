@@ -85,6 +85,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Postgres: each statement is translated once, not on every query**
+  (found by Tessera, where 55% of the API's busy time was this). `pquery`
+  parsed and rewrote the MySQL-dialect SQL on every call
+  (`PostgresSqlTransformer`, through `node-sql-parser`), and an application
+  sends the same few hundred statements thousands of times. The result is now
+  kept in a bounded LRU keyed by the SQL text and the shape of the params
+  (their names, or whether an array is empty; never their values), so it is
+  the same bytes as before. A translation that throws is not kept; a caller
+  gets a copy, so editing it changes nothing for the next one. The size is
+  `sqlTransformCacheSize` (config; default `DEFAULT_TRANSFORM_CACHE_SIZE`,
+  5000, in `lib/sql-transform/transformCache.js`; `0` turns it off). A
+  repeated statement: about 530 us before, about 2 us after.
 - **`bin/schema-sync` prints every error it counts.** A failed sync ended
   with only `N schema-sync error(s) across M table(s)`; trigger DDL failures
   (e.g. MySQL errno 1419 refusing `CREATE TRIGGER`) were never logged at all.
