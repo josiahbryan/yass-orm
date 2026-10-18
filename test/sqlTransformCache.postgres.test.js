@@ -123,6 +123,7 @@ describe('Postgres SQL translation cache', function suite() {
 		const counting = (maxEntries) => {
 			let calls = 0;
 			const cache = createTransformCache({
+				dialect: 'postgres',
 				transform: ({ sql }) => {
 					calls += 1;
 					return { sql: sql.toUpperCase(), paramOrder: [] };
@@ -136,6 +137,7 @@ describe('Postgres SQL translation cache', function suite() {
 			expect(DEFAULT_TRANSFORM_CACHE_SIZE).to.be.a('number');
 			let calls = 0;
 			const cache = createTransformCache({
+				dialect: 'postgres',
 				transform: () => {
 					calls += 1;
 					return { sql: 'x', paramOrder: [] };
@@ -178,6 +180,7 @@ describe('Postgres SQL translation cache', function suite() {
 		it('shrinking the bound takes effect on the next miss', () => {
 			let max = 5;
 			const cache = createTransformCache({
+				dialect: 'postgres',
 				transform: ({ sql }) => ({ sql, paramOrder: [] }),
 				getMaxEntries: () => max,
 			});
@@ -190,6 +193,7 @@ describe('Postgres SQL translation cache', function suite() {
 		it('never caches a translation that threw', () => {
 			let calls = 0;
 			const cache = createTransformCache({
+				dialect: 'postgres',
 				transform: () => {
 					calls += 1;
 					if (calls === 1) throw new Error('boom');

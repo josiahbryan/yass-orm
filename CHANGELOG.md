@@ -85,6 +85,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **SQL translation cache keys include the dialect and use a structured
+  encoding.** A parameter name containing NUL cannot alias two names or
+  shift the boundary into the SQL text. Values are never part of a key or
+  translation result. `sqlTransformCacheSize` is validated at construction
+  and after config changes as a nonnegative safe integer; shrinking the
+  bound evicts immediately, and disabling clears retained translations.
 - **Postgres: each statement is translated once, not on every query**
   (found by Tessera, where 55% of the API's busy time was this). `pquery`
   parsed and rewrote the MySQL-dialect SQL on every call

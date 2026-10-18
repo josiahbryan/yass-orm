@@ -1149,6 +1149,11 @@ await OrgModel.create({ name: 'Acme', owner: user }); // typed fields; a link ta
 ## Recent changes
 
 ---
+- 2026-10-18 (unreleased)
+  - (fix) **SQL translation cache keys cannot collide on delimiter characters.** The key is a structured tuple of dialect, exact SQL text and parameter shape, never parameter values. A name containing NUL no longer aliases two separate names. `sqlTransformCacheSize` must be a finite, nonnegative safe integer (checked at construction and on configuration changes); reducing it evicts immediately, and `0` disables and clears the cache. SQL translation and query results are unchanged.
+  - (test) `test/sqlTransformCache.key.test.js`: collision regressions, value-independent reuse, dialect namespaces and invalid or shrinking bounds; existing corpus comparison and live Postgres coverage retained.
+
+---
 - 2026-10-17 (unreleased)
   - (perf) **Postgres: a statement is translated once, not on every query** (found by Tessera: 55% of its API's busy time was `transformSqlForPostgres` and `node-sql-parser`, run by `pquery` on the same few hundred statements thousands of times). The translation now goes through a bounded LRU (`lib/sql-transform/transformCache.js`) keyed by the SQL text and the shape of the params: their names, or whether a positional array is empty, since `?` is a placeholder only then. Values are never part of the key, so output is byte-identical to the uncached one (checked across the transformer's test corpus). A translation that throws is never kept, and each caller gets a copy of the result. `sqlTransformCacheSize` (config) sets the bound; default `DEFAULT_TRANSFORM_CACHE_SIZE` = 5000, `0` turns the cache off. Measured on a mixed set of three statements: about 530 us per translation before, about 2 us after. SQLite and MySQL are unchanged.
   - (test) `test/sqlTransformCache.postgres.test.js` (in `npm run test:postgres`): the parser runs once for a repeated statement; different param shapes are different entries; the LRU evicts at its bound; a throw is not cached; cache on and off give identical output.
