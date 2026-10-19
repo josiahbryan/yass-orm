@@ -1149,6 +1149,11 @@ await OrgModel.create({ name: 'Acme', owner: user }); // typed fields; a link ta
 ## Recent changes
 
 ---
+- 2026-10-19 (unreleased)
+  - (fix) **MySQL schema sync respects varchar widths.** Different widths no longer compare equal, so widening an existing column is applied instead of silently skipped. Equal widths still converge without another ALTER.
+  - (test) `test/schemaSync.varcharWidth.test.js`: live MySQL and Postgres coverage for widening 32 to 128 characters, preserving existing values, storing a full model identity and a no-op second sync.
+
+---
 - 2026-10-18 (unreleased)
   - (fix) **SQL translation cache keys cannot collide on delimiter characters.** The key is a structured tuple of dialect, exact SQL text and parameter shape, never parameter values. A name containing NUL no longer aliases two separate names. `sqlTransformCacheSize` must be a finite, nonnegative safe integer (checked at construction and on configuration changes); reducing it evicts immediately, and `0` disables and clears the cache. SQL translation and query results are unchanged.
   - (test) `test/sqlTransformCache.key.test.js`: collision regressions, value-independent reuse, dialect namespaces and invalid or shrinking bounds; existing corpus comparison and live Postgres coverage retained.
