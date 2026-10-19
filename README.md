@@ -1146,6 +1146,24 @@ await OrgModel.create({ name: 'Acme', owner: user }); // typed fields; a link ta
   `ModelData<S>`, `ModelInput<S>`, `AnyModelClass`, and the field types
   (`StringField`, `NumberField`, `LinkedFieldType`, ...).
 
+### Inventory varchar widening before re-pinning
+
+After re-pinning yass, the first sync widens columns whose declared widths grew.
+Export the application's converted schemas to a JSON array (the same objects passed
+to `syncSchemaToDb`, containing `table` and `fields`). With its normal `YASS_CONFIG`
+and preferably a read-only database user, run:
+
+```sh
+node node_modules/yass-orm/bin/schema-width-inventory converted-schemas.json
+```
+
+This command reads only `DATABASE()` and `information_schema.COLUMNS`; it never runs
+schema sync or reads stored values. It lists table, column, old width and declared
+width for each widening candidate. Index safety can defer some candidates during
+sync. Review the count and hot tables before rollout; schedule the necessary DDL.
+Schemas for external/qualified databases are refused: inventory each database with
+its own configuration and local schema list.
+
 ## Recent changes
 
 ---

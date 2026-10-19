@@ -1,0 +1,30 @@
+#!/usr/bin/env node
+// Reads converted schemas from JSON and information_schema only. Never syncs.
+/* eslint-disable no-console */
+const fs = require('fs');
+const { dbh, closeAllConnections } = require('../lib/dbh');
+const { inventoryVarcharWidths } = require('../lib/varchar-width');
+
+async function main() {
+	const file = process.argv[2];
+	if (!file || process.argv.length !== 3)
+		throw new Error(
+			'Usage: node bin/schema-width-inventory converted-schemas.json',
+		);
+	const schemas = JSON.parse(fs.readFileSync(file, 'utf8'));
+	if (!Array.isArray(schemas))
+		throw new Error('Expected an array of converted schemas');
+	const conn = await dbh();
+	if (conn.dialect.name !== 'mysql')
+		throw new Error('Width inventory requires MySQL');
+	const rows = await inventoryVarcharWidths(conn, schemas);
+	console.log(JSON.stringify({ widening: rows, count: rows.length }, null, 2));
+}
+main()
+	.catch(() => {
+		console.error(
+			'Width inventory failed; check schema JSON and read-only metadata access. No sync was run.',
+		);
+		process.exitCode = 1;
+	})
+	.finally(() => closeAllConnections());

@@ -4,6 +4,7 @@ const { v4: uuid } = require('uuid');
 const YassORM = require('../lib');
 const { dbh } = require('../lib/dbh');
 const config = require('../lib/config');
+const { inventoryVarcharWidths } = require('../lib/varchar-width');
 const { syncSchemaToDb } = require('../lib/sync-to-db');
 
 const LEGACY_WIDTH = 32;
@@ -45,6 +46,24 @@ describe('#schemaSync varchar width changes', function suite() {
 			`INSERT INTO ${q(table)} (${q('model')}) VALUES (:model)`,
 			{ model: 'old-model@4' },
 		);
+		if ((config.dialect || 'mysql') === 'mysql') {
+			const inventory = await inventoryVarcharWidths(conn, [
+				YassORM.convertDefinition(def(MODEL_SPACE_WIDTH)),
+			]);
+			expect(
+				inventory.map(({ column, oldWidth, newWidth }) => ({
+					column,
+					oldWidth,
+					newWidth,
+				})),
+			).to.deep.equal([
+				{
+					column: 'model',
+					oldWidth: LEGACY_WIDTH,
+					newWidth: MODEL_SPACE_WIDTH,
+				},
+			]);
+		}
 		const widened = await syncSchemaToDb(
 			YassORM.convertDefinition(def(MODEL_SPACE_WIDTH)),
 		);

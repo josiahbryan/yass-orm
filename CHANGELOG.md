@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   widening beyond the key budget is skipped. Both skips log column metadata only.
   Existing values are preserved and unchanged widths remain no-ops. Live MySQL and Postgres
   regression coverage widens a column from 32 to 128 characters.
+- After re-pinning, the first sync widens any column whose schema width grew;
+  list them first with `node node_modules/yass-orm/bin/schema-width-inventory
+  converted-schemas.json` (metadata only; see README).
 
 ### Changed (breaking, major: 3.0)
 
