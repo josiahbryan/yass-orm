@@ -9,9 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- MySQL schema sync now compares varchar widths exactly instead of treating all
-  widths as equal. Widening an existing column is applied, existing values are
-  preserved, and an unchanged width remains a no-op. Live MySQL and Postgres
+- MySQL schema sync now applies safe varchar widening instead of treating all
+  widths as equal. Narrowing declarations preserve wider stored columns; indexed
+  widening beyond the key budget is skipped. Both skips log column metadata only.
+  Existing values are preserved and unchanged widths remain no-ops. Live MySQL and Postgres
   regression coverage widens a column from 32 to 128 characters.
 
 ### Changed (breaking, major: 3.0)

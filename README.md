@@ -1150,7 +1150,7 @@ await OrgModel.create({ name: 'Acme', owner: user }); // typed fields; a link ta
 
 ---
 - 2026-10-19 (unreleased)
-  - (fix) **MySQL schema sync respects varchar widths.** Different widths no longer compare equal, so widening an existing column is applied instead of silently skipped. Equal widths still converge without another ALTER.
+  - (fix) **MySQL schema sync respects varchar widths.** Widening an existing column is applied instead of silently skipped. A narrower declaration preserves the wider stored column and logs table/column metadata once per sync. Indexed widening that exceeds the InnoDB key budget (including composite members), or whose safety cannot be established, is skipped and logged; operators must explicitly migrate the index before widening. Equal widths still converge without another ALTER.
   - (test) `test/schemaSync.varcharWidth.test.js`: live MySQL and Postgres coverage for widening 32 to 128 characters, preserving existing values, storing a full model identity and a no-op second sync.
 
 ---
