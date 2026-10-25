@@ -940,6 +940,7 @@ const { sqlHelpers: sql } = require('yass-orm'); // or require('yass-orm/lib/sql
 | `lockKey(tx, key)` | runs | a row of `yass_locks`, `SELECT ... FOR UPDATE` | same (in place of `pg_advisory_xact_lock`) |
 | `ensureLockTable(db)` | runs | creates `yass_locks` if missing, outside any transaction | same |
 | `upsertWhere(db, table, { values, conflictColumns, update, where, params })` | `{ inserted, updated }` | INSERT; on a unique violation, `UPDATE ... WHERE key AND (where)` | same |
+| `upsertAdd(db, table, { values, conflictColumns, add, max, set })` | nothing | one `INSERT ... AS alias ON DUPLICATE KEY UPDATE` (MySQL 8.0.19+): `add` columns `+=` the inserted value, `max` columns `GREATEST`, `set` columns overwritten | one `INSERT ... ON CONFLICT (...) DO UPDATE` (same meaning) |
 | `readBack(db, { write, read, readFirst })` | `{ rows, affectedRows }` | the write and the read in one transaction | same (in place of `RETURNING`) |
 
 `amount` in the interval helpers is SQL (a number or a `:param`); units are
@@ -996,6 +997,7 @@ Notes:
   was opened on (never inside the transaction); on MySQL that transaction then fails if it had
   read something, and `transaction(fn, { maxRetries })` runs it again (the
   error is retryable).
+- `upsertAdd` is ONE statement, for counter rows that many writers add to at once. `upsertWhere` inserts, and on a duplicate key updates in a second statement; on MySQL the failed insert leaves a shared lock on the existing row and the update then needs an exclusive one, so two writers of the same row can deadlock (error 1213) on each other. `upsertAdd` takes the exclusive lock in its one statement. It does not make every upsert deadlock-free (other keys and longer transactions can still contend); keep the transaction retry. Names must be plain columns (quoted by the dialect), every value is bound, a column may be in only one of `add`/`max`/`set`, a key column is never changed, and a value in `add` or `max` must be a finite number (null, NaN and strings are refused, never read as zero). With none of the three it inserts a missing row and leaves an existing one. MySQL older than 8.0.19, and MariaDB, are refused with a named error (no row alias; there is no fallback).
 - `upsertWhere` is two statements. A unique violation on another key than
   `conflictColumns` updates nothing. `updated` means the condition held (the
   row may be unchanged).
@@ -1165,6 +1167,11 @@ Schemas for external/qualified databases are refused: inventory each database wi
 its own configuration and local schema list.
 
 ## Recent changes
+
+---
+- 2026-10-25 (unreleased)
+  - (feat) **`sqlHelpers.upsertAdd`**: add to counter columns in one atomic statement (`INSERT ... ON DUPLICATE KEY UPDATE` with a row alias on MySQL 8.0.19+, `ON CONFLICT ... DO UPDATE` on Postgres), in place of `upsertWhere`'s insert-then-update for counter rows. Removes the shared-then-exclusive lock upgrade that deadlocked concurrent first writers of one row on MySQL.
+  - (test) `test/sql-helpers.test.js`: live MySQL and Postgres coverage: insert, add, max, set, zero and negative adds, twenty concurrent writers of one new key, twenty rounds of sixteen concurrent first writers in their own transactions, rollback, empty selections and every refusal; `upsertWhere` unchanged.
 
 ---
 - 2026-10-19 (unreleased)

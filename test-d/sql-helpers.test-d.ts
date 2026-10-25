@@ -20,6 +20,15 @@ expectType<Promise<{ inserted: boolean; updated: boolean }>>(
 		where: 'lockedUntil IS NULL',
 	}),
 );
+expectType<Promise<void>>(
+	sqlHelpers.upsertAdd(db, 'usage', {
+		values: { tenant: 't', day: 1, bytes: 5, peak: 9, updatedAt: 2 },
+		conflictColumns: ['tenant', 'day'],
+		add: ['bytes'],
+		max: ['peak'],
+		set: ['updatedAt'],
+	}),
+);
 expectType<Promise<{ rows: { value: string }[]; affectedRows: number }>>(
 	sqlHelpers.readBack<{ value: string }>(db, {
 		readFirst: true,

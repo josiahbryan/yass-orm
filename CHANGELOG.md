@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `sqlHelpers.upsertAdd(db, table, { values, conflictColumns, add, max, set })`: add to
+  counter columns in one atomic statement (MySQL 8.0.19+ row alias with
+  `ON DUPLICATE KEY UPDATE`; Postgres `ON CONFLICT ... DO UPDATE`). Names are
+  validated and quoted, values bound; older MySQL and MariaDB are refused with a
+  named error. `upsertWhere` is unchanged.
+
 ### Fixed
 
 - MySQL schema sync now applies safe varchar widening instead of treating all

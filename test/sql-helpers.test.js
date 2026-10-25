@@ -435,6 +435,182 @@ describe('#sql helpers (lib/sql-helpers.js)', function helpersSuite() {
 		});
 	});
 
+	describe('upsertAdd(): add to a counter row in one statement', () => {
+		const add = (db, args) =>
+			sql.upsertAdd(db, table, { conflictColumns: ['id'], ...args });
+		const pointsOf = async (id) =>
+			(await rows(`${c('id')} = :id`, { id }))[0];
+
+		it('inserts a missing row with the given values', async () => {
+			await add(conn, {
+				values: { id: 'n', name: 'new', points: 3 },
+				add: ['points'],
+			});
+			expect(await pointsOf('n')).to.include({ name: 'new', points: 3 });
+		});
+
+		it('adds to an existing row, raises a maximum, sets a column, and leaves the rest', async () => {
+			await add(conn, {
+				values: { id: 'b', name: 'renamed', points: 4, note: 'y' },
+				add: ['points'],
+				set: ['name'],
+			});
+			expect(await pointsOf('b')).to.include({
+				name: 'renamed',
+				points: 9,
+				note: 'x',
+			});
+			await add(conn, {
+				values: { id: 'b', points: 7 },
+				max: ['points'],
+			});
+			expect((await pointsOf('b')).points, 'raised to the larger').to.equal(9);
+			await add(conn, {
+				values: { id: 'b', points: 20 },
+				max: ['points'],
+			});
+			expect((await pointsOf('b')).points, 'never lowered').to.equal(20);
+		});
+
+		it('adds zero and negatives exactly; keeps the stored id', async () => {
+			await add(conn, { values: { id: 'a', points: 0 }, add: ['points'] });
+			expect((await pointsOf('a')).points).to.equal(1);
+			await add(conn, { values: { id: 'a', points: -1 }, add: ['points'] });
+			expect((await pointsOf('a')).points).to.equal(0);
+		});
+
+		it('twenty concurrent first writes of one new key end as one row with the exact sum', async () => {
+			const writes = Array.from({ length: 20 }, (_, i) =>
+				add(conn, {
+					values: { id: 'race', points: i + 1 },
+					add: ['points'],
+				}),
+			);
+			await Promise.all(writes);
+			const found = await rows(`${c('id')} = 'race'`);
+			expect(found).to.have.length(1);
+			expect(found[0].points).to.equal(210);
+		});
+
+		it('twenty rounds of sixteen concurrent first writers never fail, and every key ends with the exact sum', async () => {
+			const ROUNDS = 20;
+			const WRITERS = 16;
+			const errors = [];
+			for (let round = 0; round < ROUNDS; round += 1) {
+				const key = `loop-${round}`;
+				// Each writer is its own transaction, as a storage ready step is.
+				// eslint-disable-next-line no-await-in-loop
+				await Promise.all(
+					Array.from({ length: WRITERS }, (_, i) =>
+						conn
+							.transaction((tx) =>
+								add(tx, { values: { id: key, points: i + 1 }, add: ['points'] }),
+							)
+							.catch((error) => errors.push(error.message)),
+					),
+				);
+				// eslint-disable-next-line no-await-in-loop
+				const found = await rows(`${c('id')} = :id`, { id: key });
+				expect(found).to.have.length(1);
+				expect(found[0].points).to.equal((WRITERS * (WRITERS + 1)) / 2);
+			}
+			expect(errors).to.deep.equal([]);
+		});
+
+		it('works inside a transaction; a rollback leaves nothing counted', async () => {
+			await conn.transaction(async (tx) => {
+				await add(tx, { values: { id: 'a', points: 10 }, add: ['points'] });
+				await add(tx, { values: { id: 'r', points: 2 }, add: ['points'] });
+			});
+			expect((await pointsOf('a')).points).to.equal(11);
+			const rolledBack = await rejectionOf(
+				conn.transaction(async (tx) => {
+					await add(tx, { values: { id: 'a', points: 100 }, add: ['points'] });
+					await add(tx, { values: { id: 'q', points: 1 }, add: ['points'] });
+					throw new Error('stop');
+				}),
+			);
+			expect(rolledBack.message).to.equal('stop');
+			expect((await pointsOf('a')).points).to.equal(11);
+			expect(await rows(`${c('id')} = 'q'`)).to.have.length(0);
+		});
+
+		it('with nothing to add, raise or set, inserts a missing row and leaves an existing one', async () => {
+			await add(conn, { values: { id: 'z', name: 'zeta', points: 8 } });
+			expect(await pointsOf('z')).to.include({ name: 'zeta', points: 8 });
+			await add(conn, { values: { id: 'z', name: 'other', points: 99 } });
+			expect(await pointsOf('z')).to.include({ name: 'zeta', points: 8 });
+		});
+
+		it('refuses a column named twice, a key column to change, and a column that is not in values', async () => {
+			const refused = async (args) =>
+				(await rejectionOf(add(conn, args))).message;
+			expect(
+				await refused({
+					values: { id: 'a', points: 1 },
+					add: ['points'],
+					max: ['points'],
+				}),
+			).to.include('points');
+			expect(
+				await refused({
+					values: { id: 'a', points: 1 },
+					add: ['points'],
+					set: ['points'],
+				}),
+			).to.include('points');
+			expect(
+				await refused({ values: { id: 'a', points: 1 }, set: ['id'] }),
+			).to.include('id');
+			expect(
+				await refused({ values: { id: 'a', points: 1 }, add: ['id'] }),
+			).to.include('id');
+			expect(
+				await refused({ values: { id: 'a' }, add: ['points'] }),
+			).to.include('points');
+		});
+
+		it('refuses an unsafe column name, a non-number in add or max, and missing conflictColumns', async () => {
+			const refused = async (args, key = ['id']) =>
+				(
+					await rejectionOf(
+						sql.upsertAdd(conn, table, { conflictColumns: key, ...args }),
+					)
+				).message;
+			expect(
+				await refused({
+					values: { id: 'a', 'points; DROP TABLE x': 1 },
+					add: ['points; DROP TABLE x'],
+				}),
+			).to.include('plain');
+			for (const bad of [null, undefined, NaN, Infinity, '5', {}]) {
+				expect(
+					await refused({ values: { id: 'a', points: bad }, add: ['points'] }),
+					`add ${String(bad)}`,
+				).to.include('points');
+				expect(
+					await refused({ values: { id: 'a', points: bad }, max: ['points'] }),
+					`max ${String(bad)}`,
+				).to.include('points');
+			}
+			expect(
+				await refused({ values: { id: 'a', points: 1 }, add: ['points'] }, []),
+			).to.include('conflictColumns');
+		});
+
+		it('upsertWhere is untouched: still two statements with its condition', async () => {
+			expect(
+				await sql.upsertWhere(conn, table, {
+					values: { id: 'a', name: 'k', points: 2 },
+					conflictColumns: ['id'],
+					update: { points: `${c('points')} + :points` },
+					where: `${c('points')} < :max`,
+					params: { max: 3 },
+				}),
+			).to.deep.equal({ inserted: false, updated: true });
+		});
+	});
+
 	describe('readBack(): read back after a write (the RETURNING replacement)', () => {
 		it('runs the write, then the read, in one transaction', async () => {
 			const { affectedRows, rows: back } = await sql.readBack(conn, {

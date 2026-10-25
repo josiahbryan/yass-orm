@@ -1743,6 +1743,22 @@ export interface SqlHelpers {
 			params?: AnyRecord;
 		},
 	): Promise<{ inserted: boolean; updated: boolean }>;
+	/**
+	 * Add to counter columns in ONE atomic statement: insert the row, or when
+	 * the `conflictColumns` row exists, increase its `add` columns, raise its
+	 * `max` columns and overwrite its `set` columns.
+	 */
+	upsertAdd(
+		db: DbHandle,
+		table: string,
+		args: {
+			values: AnyRecord;
+			conflictColumns: string[];
+			add?: string[];
+			max?: string[];
+			set?: string[];
+		},
+	): Promise<void>;
 	/** A write and a read in one transaction (the RETURNING replacement). */
 	readBack<Row = AnyRecord>(
 		db: DbHandle,
