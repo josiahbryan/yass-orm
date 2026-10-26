@@ -623,7 +623,7 @@ Some tests are intentionally skipped under SQLite where behavior is MySQL-specif
 declared with the same width, **by you**: `t.linked('model', { keyWidth: 64 })` (with `stringLinkedIds`).
 
 - Widening an existing key (36 to 64) is done in place, keeps the rows and settles: a second sync changes nothing.
-- Narrowing a key is refused by name in the sync's `errors`, before any DDL, because stored ids could be cut short.
+- Narrowing a key is refused by name in the sync's `errors`, before any DDL, because stored ids could be cut short. This holds for a `db.table` target too (the refusal reads the same schema and table the DDL would change).
 - **Not checked at sync: a link column's width against the key it points at.** A key widened to 64 whose link columns
   stay at 36 is not reported. An id longer than 36 then fails on insert into the link column (strict MySQL, Postgres)
   or is silently cut short (non-strict MySQL). Widen every link to a wide key in the same change as the key.

@@ -151,4 +151,121 @@ describe('#schemaSync per-model string key width', function suite() {
 			YassORM.convertDefinition(parentDef(DEFAULT_WIDTH)),
 		).to.not.throw();
 	});
+
+	// A qualified `db.table` target (MySQL: a second database; Postgres: a second schema): the refusal must look at
+	// the same catalog table the DDL would change.
+	it('refuses to narrow a key in a qualified db.table, with no other change applied', async () => {
+		const isPg = ['postgres', 'postgresql'].includes(config.dialect || 'mysql');
+		const conn = await dbh();
+		const q = (n) => conn.dialect.quoteIdentifier(n);
+		const name = `${base}_q`;
+		const qualifiedSchema = isPg ? `${base}_s` : config.schema2;
+		const target = `${qualifiedSchema}.${name}`;
+		const saved2 = config.enableAlternateSchemaInTableName;
+		config.enableAlternateSchemaInTableName = true;
+		const def =
+			(keyWidth, extra) =>
+			({ types: t }) => ({
+				table: target,
+				objectIdPrefix: 'qua',
+				schema: {
+					id: keyWidth === undefined ? t.stringKey : t.stringKey({ keyWidth }),
+					note: t.string,
+					...(extra ? { extra: t.string } : {}),
+				},
+			});
+		const columnsOf = async () =>
+			(
+				await conn.pquery(
+					`SELECT column_name AS c, character_maximum_length AS w FROM information_schema.columns WHERE table_schema = :s AND table_name = :t ORDER BY column_name`,
+					{ s: qualifiedSchema, t: name },
+				)
+			).map((r) => `${r.c}:${r.w}`);
+		try {
+			// A secondary-database table is provisioned by hand (sync creates new tables in the configured database).
+			if (isPg) {
+				await conn.pquery(`CREATE SCHEMA IF NOT EXISTS ${q(qualifiedSchema)}`);
+				await conn.pquery(
+					`CREATE TABLE ${q(qualifiedSchema)}.${q(
+						name,
+					)} (id varchar(${WIDE}) NOT NULL PRIMARY KEY, note varchar(255), "isDeleted" int NOT NULL DEFAULT 0)`,
+				);
+			} else {
+				await conn.pquery(
+					`CREATE TABLE ${q(qualifiedSchema)}.${q(
+						name,
+					)} (id varchar(${WIDE}) COLLATE utf8mb4_bin NOT NULL PRIMARY KEY, note varchar(255), isDeleted int(1) NOT NULL DEFAULT 0) CHARACTER SET utf8mb4`,
+				);
+			}
+			const before = await columnsOf();
+			expect(before).to.include(`id:${WIDE}`);
+			const refused = await sync(def(undefined, true));
+			expect((refused.errors || []).length).to.be.greaterThan(0);
+			expect(`${refused.errors[0]}`).to.match(/narrow/i);
+			expect(refused.applied).to.equal(0);
+			expect(await columnsOf()).to.deep.equal(before);
+		} finally {
+			config.enableAlternateSchemaInTableName = saved2;
+			await conn.pquery(
+				`DROP TABLE IF EXISTS ${q(qualifiedSchema)}.${q(name)}`,
+			);
+			if (isPg)
+				await conn.pquery(`DROP SCHEMA IF EXISTS ${q(qualifiedSchema)}`);
+		}
+	});
+
+	// SEC4c P3: widening an EXISTING link column keeps its rows and, on MySQL with linkColumnCollation, its binary collation.
+	it('widens an existing link column in place, keeps its collation, and converges', async () => {
+		const isPg = ['postgres', 'postgresql'].includes(config.dialect || 'mysql');
+		const conn = await dbh();
+		const q = (n) => conn.dialect.quoteIdentifier(n);
+		const name = `${base}_l`;
+		const savedCollation = config.linkColumnCollation;
+		config.linkColumnCollation = true;
+		const def =
+			(keyWidth) =>
+			({ types: t }) => ({
+				table: name,
+				objectIdPrefix: 'lnk',
+				schema: {
+					id: t.stringKey,
+					owner: t.linked('parent', keyWidth ? { keyWidth } : {}),
+				},
+			});
+		const collationOf = async () =>
+			isPg
+				? null
+				: (
+						await conn.pquery(
+							`SELECT collation_name AS c FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = :t AND column_name = 'owner'`,
+							{ t: name },
+						)
+				  )[0].c;
+		try {
+			expect((await sync(def())).errors || []).to.deep.equal([]);
+			// A new link column is made at the server's default; the flag's exact collation is adopted by the next sync.
+			expect((await sync(def())).errors || []).to.deep.equal([]);
+			expect(await widthOf(conn, name, 'owner')).to.equal(DEFAULT_WIDTH);
+			const collation = await collationOf();
+			if (!isPg) expect(collation).to.equal('utf8mb4_bin');
+			await conn.pquery(
+				`INSERT INTO ${q(name)} (${q('id')}, ${q(
+					'owner',
+				)}) VALUES ('lnk_1', 'par_kept')`,
+			);
+			const widened = await sync(def(WIDE));
+			expect(widened.errors || []).to.deep.equal([]);
+			expect(widened.applied).to.be.greaterThan(0);
+			expect(await widthOf(conn, name, 'owner')).to.equal(WIDE);
+			expect(await collationOf()).to.equal(collation);
+			const rows = await conn.pquery(
+				`SELECT ${q('owner')} AS o FROM ${q(name)}`,
+			);
+			expect(rows.map((r) => r.o)).to.deep.equal(['par_kept']);
+			expect((await sync(def(WIDE))).applied).to.equal(0);
+		} finally {
+			config.linkColumnCollation = savedCollation;
+			await conn.pquery(`DROP TABLE IF EXISTS ${q(name)}`);
+		}
+	});
 });

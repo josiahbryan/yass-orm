@@ -15,7 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with no drift and keeps its rows; narrowing one is refused by name in the sync's `errors`, with
   no DDL run, because stored ids could be cut short. A width outside 36-255 throws when the
   definition is read. Known gap, documented in the README: a link column's width is not checked against
-  the key it points at at sync time (widen every link in the same change).
+  the key it points at at sync time (widen every link in the same change). The narrowing refusal reads the
+  same schema and table the DDL would change, so a `db.table` target is covered too; a link to a wide key
+  keeps the exact (`utf8mb4_bin`) collation under `linkColumnCollation`.
 - `sqlHelpers.upsertAdd(db, table, { values, conflictColumns, add, max, set })`: add to
   counter columns in one atomic statement (MySQL 8.0.19+ row alias with
   `ON DUPLICATE KEY UPDATE`; Postgres `ON CONFLICT ... DO UPDATE`). Names are
