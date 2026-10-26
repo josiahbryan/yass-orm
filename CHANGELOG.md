@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `t.stringKey({ keyWidth })`: a per-model string primary-key width, 36 (the default, unchanged:
+  `CHAR(36)` on MySQL, `VARCHAR(36)` on Postgres) up to 255. A link to it takes the same width:
+  `t.linked('model', { keyWidth })` (with `stringLinkedIds`). Widening an existing key converges
+  with no drift and keeps its rows; narrowing one is refused by name in the sync's `errors`, with
+  no DDL run, because stored ids could be cut short. A width outside 36-255 throws when the
+  definition is read.
 - `sqlHelpers.upsertAdd(db, table, { values, conflictColumns, add, max, set })`: add to
   counter columns in one atomic statement (MySQL 8.0.19+ row alias with
   `ON DUPLICATE KEY UPDATE`; Postgres `ON CONFLICT ... DO UPDATE`). Names are

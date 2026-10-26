@@ -703,7 +703,7 @@ const results = await Model.search({ name: 'test' });
 |---------------|-----------------|
 | `t.idKey` | `SERIAL PRIMARY KEY` |
 | `t.uuidKey` | `UUID PRIMARY KEY` |
-| `t.stringKey` | `VARCHAR(36) PRIMARY KEY` |
+| `t.stringKey` | `VARCHAR(36) PRIMARY KEY` (`t.stringKey({ keyWidth: 64 })` for a wider key, 36-255; links take `t.linked('model', { keyWidth: 64 })`; widening syncs in place, narrowing is refused) |
 | `t.linked()` with `uuidLinkedIds` | `UUID` |
 | `t.linked()` with `stringLinkedIds` | `VARCHAR(36)` |
 | `t.varchar(N)` | `VARCHAR(N)` |
