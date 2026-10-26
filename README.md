@@ -616,6 +616,20 @@ Some tests are intentionally skipped under SQLite where behavior is MySQL-specif
 
 ---
 
+## Per-model string key width (`keyWidth`)
+
+`t.stringKey` is 36 characters wide by default. A model that needs longer ids asks for it:
+`t.stringKey({ keyWidth: 64 })` (whole characters, 36 to 255). A link column that holds those ids has to be
+declared with the same width, **by you**: `t.linked('model', { keyWidth: 64 })` (with `stringLinkedIds`).
+
+- Widening an existing key (36 to 64) is done in place, keeps the rows and settles: a second sync changes nothing.
+- Narrowing a key is refused by name in the sync's `errors`, before any DDL, because stored ids could be cut short.
+- **Not checked at sync: a link column's width against the key it points at.** A key widened to 64 whose link columns
+  stay at 36 is not reported. An id longer than 36 then fails on insert into the link column (strict MySQL, Postgres)
+  or is silently cut short (non-strict MySQL). Widen every link to a wide key in the same change as the key.
+- Narrowing a link column that already holds longer values never truncates: MySQL keeps the wider column (no
+  DDL, no error), and Postgres refuses the ALTER. Neither reports it as drift in yass's own output.
+
 ## PostgreSQL Support
 
 As of 2026-03, yass-orm supports PostgreSQL as a first-class dialect alongside MySQL/MariaDB and SQLite. This enables production deployments on PostgreSQL with full ORM functionality.
