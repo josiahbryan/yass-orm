@@ -624,11 +624,14 @@ declared with the same width, **by you**: `t.linked('model', { keyWidth: 64 })` 
 
 - Widening an existing key (36 to 64) is done in place, keeps the rows and settles: a second sync changes nothing.
 - Narrowing a key is refused by name in the sync's `errors`, before any DDL, because stored ids could be cut short. This holds for a `db.table` target too (the refusal reads the same schema and table the DDL would change).
-- **Not checked at sync: a link column's width against the key it points at.** A key widened to 64 whose link columns
-  stay at 36 is not reported. An id longer than 36 then fails on insert into the link column (strict MySQL, Postgres)
-  or is silently cut short (non-strict MySQL). Widen every link to a wide key in the same change as the key.
-- Narrowing a link column that already holds longer values never truncates: MySQL keeps the wider column (no
-  DDL, no error), and Postgres refuses the ALTER. Neither reports it as drift in yass's own output.
+- **A link column is checked against the key it points at.** A link that names a registered model
+  (`registerModel`, then `t.linked('name')`) whose key is wider than the link is reported when the link's table is
+  synced: `result.warnings` carries one sentence per column (and the sync prints it as `Warning: ...`). An id longer
+  than the link then fails on insert (strict MySQL, Postgres) or is silently cut short (non-strict MySQL), so declare
+  the link with the same `keyWidth`. A link to a model that is not registered is not checked: there is no key to compare.
+- **A link column is never narrowed.** Declaring a link narrower than the column already is is refused by name before any
+  DDL, like the key (MySQL used to keep the wider column without a word; Postgres failed the `ALTER`). A refusal counts
+  as a failure: `failed` is set and `schema-sync` exits 1.
 
 ## PostgreSQL Support
 
@@ -1182,6 +1185,12 @@ Schemas for external/qualified databases are refused: inventory each database wi
 its own configuration and local schema list.
 
 ## Recent changes
+
+---
+- 2026-10-27 (unreleased)
+  - (fix) **A refused key narrowing now fails schema-sync.** The refusal returned a bare error with no `failed` count, so `bin/schema-sync` exited 0 and its summary did not name it. A refusal is now a `{ table, description, sql, error }` record with `failed` set.
+  - (feat) **Link columns are checked against the key they point at.** A `t.linked` string link narrower than the `t.stringKey({ keyWidth })` of the registered model it names is reported in `result.warnings`; narrowing a link column is refused before any DDL, like a key.
+  - (test) `test/schemaSync.linkWidth.test.js`: live MySQL and Postgres coverage: the warning, a link as wide as its key, narrowing refused with rows kept and exit code 1, and what a too-narrow link does to a long id (Postgres refuses it, non-strict MySQL cuts it short).
 
 ---
 - 2026-10-25 (unreleased)

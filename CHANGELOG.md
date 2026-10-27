@@ -9,13 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Schema-sync checks a string link column against the key it points at: a `t.linked` link narrower than the
+  `t.stringKey({ keyWidth })` of the registered model it names is reported in `result.warnings` (and printed as
+  `Warning: ...`), because an id longer than the link fails on insert (strict MySQL, Postgres) or is cut short
+  (non-strict MySQL). Narrowing a link column is refused by name before any DDL, like a key.
 - `t.stringKey({ keyWidth })`: a per-model string primary-key width, 36 (the default, unchanged:
   `CHAR(36)` on MySQL, `VARCHAR(36)` on Postgres) up to 255. A link to it takes the same width:
   `t.linked('model', { keyWidth })` (with `stringLinkedIds`). Widening an existing key converges
   with no drift and keeps its rows; narrowing one is refused by name in the sync's `errors`, with
   no DDL run, because stored ids could be cut short. A width outside 36-255 throws when the
-  definition is read. Known gap, documented in the README: a link column's width is not checked against
-  the key it points at at sync time (widen every link in the same change). The narrowing refusal reads the
+  definition is read. A link column is checked against the key it points at (next entry). The narrowing refusal reads the
   same schema and table the DDL would change, so a `db.table` target is covered too; a link to a wide key
   keeps the exact (`utf8mb4_bin`) collation under `linkColumnCollation`.
 - `sqlHelpers.upsertAdd(db, table, { values, conflictColumns, add, max, set })`: add to
@@ -26,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A refused key narrowing is now counted by schema-sync: the result carries `failed` and a
+  `{ table, description, sql, error }` record, so `bin/schema-sync` exits 1 and names it. Before, the refusal was a bare
+  error with no `failed` count and the CLI exited 0.
 - MySQL schema sync now applies safe varchar widening instead of treating all
   widths as equal. Narrowing declarations preserve wider stored columns; indexed
   widening beyond the key budget is skipped. Both skips log column metadata only.

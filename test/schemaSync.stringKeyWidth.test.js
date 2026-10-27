@@ -4,7 +4,7 @@ const { v4: uuid } = require('uuid');
 const YassORM = require('../lib');
 const { dbh } = require('../lib/dbh');
 const config = require('../lib/config');
-const { syncSchemaToDb } = require('../lib/sync-to-db');
+const { syncSchemaToDb, reportSyncResults } = require('../lib/sync-to-db');
 
 // Per-model string primary-key width (`t.stringKey({ keyWidth })`): the default stays 36
 // (CHAR(36) on MySQL, VARCHAR(36) on Postgres), a model may ask for a wider key, link
@@ -133,7 +133,11 @@ describe('#schemaSync per-model string key width', function suite() {
 		const conn = await dbh();
 		const result = await sync(parentDef(DEFAULT_WIDTH));
 		expect((result.errors || []).length).to.be.greaterThan(0);
-		expect(`${result.errors[0]}`).to.match(/narrow/i);
+		expect(result.errors[0].description).to.match(/narrow/i);
+		expect(
+			reportSyncResults([result]),
+			'schema-sync exits 1 on a refusal',
+		).to.equal(1);
 		expect(await widthOf(conn, parent, 'id')).to.equal(WIDE);
 		const widerStill = await sync(parentDef(WIDER));
 		expect(widerStill.errors || []).to.deep.equal([]);
@@ -201,7 +205,7 @@ describe('#schemaSync per-model string key width', function suite() {
 			expect(before).to.include(`id:${WIDE}`);
 			const refused = await sync(def(undefined, true));
 			expect((refused.errors || []).length).to.be.greaterThan(0);
-			expect(`${refused.errors[0]}`).to.match(/narrow/i);
+			expect(refused.errors[0].description).to.match(/narrow/i);
 			expect(refused.applied).to.equal(0);
 			expect(await columnsOf()).to.deep.equal(before);
 		} finally {
