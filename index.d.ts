@@ -1614,6 +1614,17 @@ export declare function registerDefinition(
 
 export declare function retryIfConnectionLost<T>(
 	fn: (dbh: DbHandle) => Promise<T>,
+	options?: {
+		handleFactory?: (options?: {
+			ignoreCachedConnections?: boolean;
+			closeReplacedPool?: boolean;
+		}) => Promise<DbHandle | undefined | null>;
+		/** Total wall-clock retry window; defaults to setConnectRetryWindowMs (30000). */
+		retryWindowMs?: number;
+		sleep?: (ms: number) => Promise<void>;
+		now?: () => number;
+		onReconnectRetryFailed?: (ex: Error) => any;
+	},
 ): Promise<T>;
 
 // Exposed deep utilities (intentionally loose)
