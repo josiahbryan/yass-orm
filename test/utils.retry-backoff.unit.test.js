@@ -372,4 +372,40 @@ describe('#retryIfConnectionLost: bounded backoff (BDL-4386)', () => {
 		expect(global).to.be.at.least(2000);
 		expect(global).to.be.below(8000);
 	});
+	it('(k) a non-finite or negative window is refused at config time, never looped on', () => {
+		// QA residual 3: NaN made `remaining` NaN, `NaN <= 0` is false, so the
+		// loop retried forever with ~1ms sleeps. Refuse it where it is set.
+		[NaN, undefined, null, Infinity, -1, '30000'].forEach((bad) => {
+			expect(
+				() => setConnectRetryWindowMs(bad),
+				`setConnectRetryWindowMs(${String(bad)})`,
+			).to.throw(TypeError, /retry window/);
+		});
+		// The previous valid value survives a refused set.
+		setConnectRetryWindowMs(1234);
+		expect(() => setConnectRetryWindowMs(NaN)).to.throw(TypeError);
+	});
+
+	it('(l) a non-finite per-call retryWindowMs rejects before the callback runs', async () => {
+		const clock = fakeClock();
+		// Bounded so the UNFIXED code terminates (it loops until the callback succeeds).
+		const cb = failingThen(Array.from({ length: 200 }, socketClosed), clock);
+		const spy = handlerSpy();
+		let caught;
+		try {
+			await retryIfConnectionLost(cb, {
+				handleFactory: recordingFactory(),
+				retryWindowMs: NaN,
+				sleep: clock.sleep,
+				now: clock.now,
+				onReconnectRetryFailed: spy,
+			});
+		} catch (ex) {
+			caught = ex;
+		}
+		expect(caught, 'expected a TypeError').to.be.instanceOf(TypeError);
+		expect(caught.message).to.match(/retry window/);
+		expect(cb.calls).to.equal(0);
+		expect(spy.calls).to.have.length(0);
+	});
 });

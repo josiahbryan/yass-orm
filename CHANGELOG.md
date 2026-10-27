@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pool exhaustion, where ending the shared pool would fail sibling queries) and are rethrown,
   not handed to the exit handler, when the window runs out. `ECONNRESET` is deliberately not
   retried: an autocommit write may already have committed.
+  A non-finite or negative window (`NaN`, `undefined`, `Infinity`, `-1`, a string) is refused
+  with a `TypeError`, by `setConnectRetryWindowMs` and per call, instead of retrying forever.
 
 ### Changed (breaking, major: 3.0)
 
