@@ -26,6 +26,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `retryIfConnectionLost` no longer retries a lost connection exactly once, immediately,
+  and then calls `onReconnectRetryFailed` (default `process.exit(1)`). It now retries with
+  exponential backoff (`exponentialDelayFactory`: 500ms growing to 5s) for a bounded
+  wall-clock window, 30s by default (`setConnectRetryWindowMs(ms)` globally, or
+  `retryWindowMs` per call). The failure handler runs only once that window is exhausted,
+  so a managed-database switchover that is unreachable for a few seconds no longer kills
+  every process with a query in flight (BDL-4386). Each attempt is a fresh retry scope, so a
+  callback whose transaction got past BEGIN is still never re-run, on any attempt.
+  Connection-lost errors are now also matched by driver code/errno (`PROTOCOL_CONNECTION_LOST`,
+  `ER_SOCKET_UNEXPECTED_CLOSE`/45009, `ER_CMD_CONNECTION_CLOSED`/45013) and still get a fresh
+  pool. Errors where the query was never sent (`ER_GET_CONNECTION_TIMEOUT`/45028 pool-acquire
+  timeout, `ECONNREFUSED`) are now retried too, but on the SAME pool (45028 also means plain
+  pool exhaustion, where ending the shared pool would fail sibling queries) and are rethrown,
+  not handed to the exit handler, when the window runs out. `ECONNRESET` is deliberately not
+  retried: an autocommit write may already have committed.
+
 - MySQL schema sync now applies safe varchar widening instead of treating all
   widths as equal. Narrowing declarations preserve wider stored columns; indexed
   widening beyond the key budget is skipped. Both skips log column metadata only.
