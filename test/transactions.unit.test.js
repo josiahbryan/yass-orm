@@ -1,5 +1,6 @@
 /* global describe, it */
 const { expect } = require('chai');
+const { retryIfConnectionLost } = require('../lib/utils');
 const {
 	isRetryableTransactionError,
 	runTransaction,
@@ -269,6 +270,35 @@ describe('transaction lifecycle unit coverage', () => {
 				expect(caught).to.equal(failure);
 				expect(attempts).to.equal(1);
 			});
+		});
+	});
+
+	guardedErrors.forEach((makeError, index) => {
+		it(`never reconnects a completed transaction for hostile error ${index}`, async () => {
+			const expected = new Proxy(makeError(), {
+				get(target, key) {
+					return key === 'message'
+						? 'socket has unexpectedly been closed'
+						: Reflect.get(target, key);
+				},
+			});
+			const { parent } = createHarness();
+			let attempts = 0;
+			let caught;
+			try {
+				await retryIfConnectionLost(
+					() =>
+						runTransaction(parent, async () => {
+							attempts += 1;
+							throw expected;
+						}),
+					{ handleFactory: async () => parent },
+				);
+			} catch (error) {
+				caught = error;
+			}
+			expect(caught).to.equal(expected);
+			expect(attempts).to.equal(1);
 		});
 	});
 

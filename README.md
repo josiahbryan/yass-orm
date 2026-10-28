@@ -1188,7 +1188,7 @@ its own configuration and local schema list.
 
 ---
 - 2026-10-28 (unreleased)
-  - (fix) **Transactions reject every thrown value.** A callback throwing `undefined`, `null`, `false`, `0`, an empty string or `NaN` rolls back and rejects with that exact value. Cleanup and release failures also retain their exact values; they never replace a primary callback failure. Previously a falsy failure could report success after rollback.
+  - (fix) **Transactions reject every thrown value.** A callback throwing `undefined`, `null`, `false`, `0`, an empty string or `NaN` rolls back and rejects with that exact value. Cleanup and release failures also retain their exact values; they never replace a primary callback failure. Frozen errors and throwing metadata setters keep their original identity and cannot skip cleanup or permit replay after commit. Previously a falsy failure could report success after rollback.
 
 ---
 - 2026-10-27 (unreleased)
