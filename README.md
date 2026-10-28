@@ -1187,6 +1187,10 @@ its own configuration and local schema list.
 ## Recent changes
 
 ---
+- 2026-10-28 (unreleased)
+  - (fix) **Transactions reject every thrown value.** A callback throwing `undefined`, `null`, `false`, `0`, an empty string or `NaN` rolls back and rejects with that exact value. Cleanup and release failures also retain their exact values; they never replace a primary callback failure. Previously a falsy failure could report success after rollback.
+
+---
 - 2026-10-27 (unreleased)
   - (fix) **A refused key narrowing now fails schema-sync.** The refusal returned a bare error with no `failed` count, so `bin/schema-sync` exited 0 and its summary did not name it. A refusal is now a `{ table, description, sql, error }` record with `failed` set.
   - (feat) **Link columns are checked against the key they point at.** A `t.linked` string link narrower than the `t.stringKey({ keyWidth })` of the registered model it names is reported in `result.warnings`; narrowing a link column is refused before any DDL, like a key.

@@ -29,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Transactions preserve falsy callback, BEGIN, COMMIT, cleanup and release rejections, including `undefined` and `null`. Callback failures roll back and reject with their original value even if cleanup also fails; a falsy failure no longer resolves as success.
+
 - A refused key narrowing is now counted by schema-sync: the result carries `failed` and a
   `{ table, description, sql, error }` record, so `bin/schema-sync` exits 1 and names it. Before, the refusal was a bare
   error with no `failed` count and the CLI exited 0.
