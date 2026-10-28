@@ -162,6 +162,116 @@ describe('transaction lifecycle unit coverage', () => {
 		}
 	}
 
+	const guardedErrors = [
+		() => Object.freeze(new Error('frozen')),
+		() => Object.preventExtensions({ message: 'nonextensible' }),
+		() => {
+			const error = new Error('setter');
+			[
+				'rollbackError',
+				'cleanupError',
+				'releaseError',
+				'transactionBegan',
+				'transactionCommitted',
+			].forEach((key) => {
+				Object.defineProperty(error, key, {
+					set() {
+						throw new Error('metadata setter');
+					},
+				});
+			});
+			return error;
+		},
+		() =>
+			new Proxy(new Error('proxy'), {
+				set() {
+					throw new Error('metadata trap');
+				},
+			}),
+	];
+	guardedErrors.forEach((makeError, index) => {
+		it(`keeps hostile primary ${index} and always cleans up and releases`, async () => {
+			const expected = makeError();
+			const { events, parent } = createHarness({
+				rollbackTransaction: async () => {
+					events.push('rollback');
+					throw new Error('rollback');
+				},
+				cleanupTransaction: async () => {
+					events.push('cleanup');
+					throw new Error('cleanup');
+				},
+				acquireTransactionConnection: async () => ({
+					connection: {},
+					release: async () => {
+						events.push('release');
+						throw new Error('release');
+					},
+				}),
+			});
+			let attempts = 0;
+			let caught;
+			try {
+				await runTransaction(
+					parent,
+					async () => {
+						attempts += 1;
+						throw expected;
+					},
+					{ maxRetries: 1 },
+				);
+			} catch (error) {
+				caught = error;
+			}
+			expect(caught).to.equal(expected);
+			expect(attempts).to.equal(1);
+			expect(events).to.deep.equal(['begin', 'rollback', 'cleanup', 'release']);
+		});
+		['cleanupTransaction', 'release'].forEach((phase) => {
+			it(`keeps hostile ${phase} ${index} after commit without replay`, async () => {
+				const expected = makeError();
+				// A retryable code makes a missing committed marker observable.
+				const failure = new Proxy(expected, {
+					get(target, key) {
+						return key === 'code' ? '40001' : Reflect.get(target, key);
+					},
+				});
+				const overrides =
+					phase === 'release'
+						? {
+								acquireTransactionConnection: async () => ({
+									connection: {},
+									release: async () => {
+										throw failure;
+									},
+								}),
+						  }
+						: {
+								cleanupTransaction: async () => {
+									throw failure;
+								},
+						  };
+				const { parent } = createHarness(overrides);
+				let attempts = 0;
+				let caught;
+				try {
+					await runTransaction(
+						parent,
+						async () => {
+							attempts += 1;
+							return 42;
+						},
+						{ maxRetries: 1 },
+					);
+				} catch (error) {
+					caught = error;
+				}
+				expect(caught).to.equal(failure);
+				expect(attempts).to.equal(1);
+			});
+		});
+	});
+
 	it('releases after BEGIN failure without issuing rollback', async () => {
 		const expected = new Error('begin failed');
 		const { events, parent } = createHarness({
