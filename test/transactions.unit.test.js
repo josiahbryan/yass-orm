@@ -302,6 +302,29 @@ describe('transaction lifecycle unit coverage', () => {
 		});
 	});
 
+	it('preserves a thrown error with a throwing message getter before any transaction', async () => {
+		const expected = Object.defineProperty({}, 'message', {
+			get() {
+				throw new Error('message getter');
+			},
+		});
+		let attempts = 0;
+		let caught;
+		try {
+			await retryIfConnectionLost(
+				async () => {
+					attempts += 1;
+					throw expected;
+				},
+				{ handleFactory: async () => ({}) },
+			);
+		} catch (error) {
+			caught = error;
+		}
+		expect(caught).to.equal(expected);
+		expect(attempts).to.equal(1);
+	});
+
 	it('releases after BEGIN failure without issuing rollback', async () => {
 		const expected = new Error('begin failed');
 		const { events, parent } = createHarness({
