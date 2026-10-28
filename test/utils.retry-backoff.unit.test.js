@@ -255,30 +255,38 @@ describe('#retryIfConnectionLost: bounded backoff (BDL-4386)', () => {
 		expect(clock.sleeps).to.have.length(0);
 	});
 
-	it('(e) pool-acquire timeout (45028) is retried on the SAME pool, not by ending it', async () => {
-		const clock = fakeClock();
-		const factory = recordingFactory();
-		const cb = failingThen(
-			[poolAcquireTimeout(), poolAcquireTimeout()],
-			clock,
-			10000,
-		);
-
-		const result = await retryIfConnectionLost(cb, {
-			handleFactory: factory,
-			sleep: clock.sleep,
-			now: clock.now,
-			onReconnectRetryFailed: handlerSpy(),
+	for (const shape of ['both', 'code', 'errno']) {
+		it(`(e) pool-acquire timeout (${shape}) rejects once without reconnect delay`, async () => {
+			const clock = fakeClock();
+			const factory = recordingFactory();
+			const ex = poolAcquireTimeout();
+			if (shape === 'code') delete ex.errno;
+			if (shape === 'errno') delete ex.code;
+			const cb = failingThen([ex], clock, 300);
+			const onReconnectRetryFailed = handlerSpy();
+			let error;
+			try {
+				await retryIfConnectionLost(cb, {
+					handleFactory: factory,
+					sleep: clock.sleep,
+					now: clock.now,
+					onReconnectRetryFailed,
+				});
+			} catch (err) {
+				error = err;
+			}
+			expect(error).to.equal(ex);
+			expect(cb.calls).to.equal(1);
+			expect(factory.calls).to.deep.equal([{}]);
+			expect(clock.sleeps).to.have.length(0);
+			expect(clock.t).to.equal(300);
+			expect(onReconnectRetryFailed.calls).to.have.length(0);
 		});
-
-		expect(result).to.equal('ok');
-		expect(cb.calls).to.equal(3);
-		factory.calls.forEach((opts) => expect(opts).to.deep.equal({}));
-	});
+	}
 
 	it('(f) a never-sent error past the window is RETHROWN, not handed to the exit handler', async () => {
 		const clock = fakeClock();
-		const errors = Array.from({ length: 1000 }, poolAcquireTimeout);
+		const errors = Array.from({ length: 1000 }, connRefused);
 		const cb = failingThen(errors, clock, 10000);
 		const onReconnectRetryFailed = handlerSpy();
 		let error;
@@ -292,7 +300,7 @@ describe('#retryIfConnectionLost: bounded backoff (BDL-4386)', () => {
 		} catch (err) {
 			error = err;
 		}
-		expect(error && error.errno).to.equal(45028);
+		expect(error && error.code).to.equal('ECONNREFUSED');
 		expect(onReconnectRetryFailed.calls).to.have.length(0);
 		expect(cb.calls).to.be.greaterThan(1);
 	});
