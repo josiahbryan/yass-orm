@@ -29,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Pool acquire timeouts (`ER_GET_CONNECTION_TIMEOUT`/45028) no longer enter the reconnect retry window. Local pool exhaustion rejects with the original error after the configured driver acquire timeout, without sleeping, replacing the pool, or calling the reconnect failure handler. Real connection loss and `ECONNREFUSED` retain bounded retries.
+
 - Transactions preserve falsy callback, BEGIN, COMMIT, cleanup and release rejections, including `undefined` and `null`. Callback failures roll back and reject with their original value even if cleanup also fails; a falsy failure no longer resolves as success. Error decoration is best effort, and retry guards retain immutable errors in weak side tables so diagnostic metadata cannot skip cleanup or permit replay after commit.
 
 - A refused key narrowing is now counted by schema-sync: the result carries `failed` and a
@@ -44,9 +46,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   callback whose transaction got past BEGIN is still never re-run, on any attempt.
   Connection-lost errors are now also matched by driver code/errno (`PROTOCOL_CONNECTION_LOST`,
   `ER_SOCKET_UNEXPECTED_CLOSE`/45009, `ER_CMD_CONNECTION_CLOSED`/45013) and still get a fresh
-  pool. Errors where the query was never sent (`ER_GET_CONNECTION_TIMEOUT`/45028 pool-acquire
-  timeout, `ECONNREFUSED`) are now retried too, but on the SAME pool (45028 also means plain
-  pool exhaustion, where ending the shared pool would fail sibling queries) and are rethrown,
+  pool. Connection refusal (`ECONNREFUSED`), where the query was never sent, is retried
+  on the SAME pool and is rethrown,
   not handed to the exit handler, when the window runs out. `ECONNRESET` is deliberately not
   retried: an autocommit write may already have committed.
   A non-finite or negative window (`NaN`, `undefined`, `Infinity`, `-1`, a string) is refused

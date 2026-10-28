@@ -1188,6 +1188,7 @@ its own configuration and local schema list.
 
 ---
 - 2026-10-28 (unreleased)
+  - (fix) **Pool acquire timeouts keep their configured bound.** `ER_GET_CONNECTION_TIMEOUT`/45028 is local pool exhaustion and is rejected immediately after the driver timeout, without reconnect retries or pool replacement. Real connection loss and `ECONNREFUSED` retain bounded retries.
   - (fix) **Transactions reject every thrown value.** A callback throwing `undefined`, `null`, `false`, `0`, an empty string or `NaN` rolls back and rejects with that exact value. Cleanup and release failures also retain their exact values; they never replace a primary callback failure. Frozen errors and throwing metadata setters keep their original identity and cannot skip cleanup or permit replay after commit. Previously a falsy failure could report success after rollback.
 
 ---

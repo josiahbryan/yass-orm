@@ -255,7 +255,7 @@ describe('#retryIfConnectionLost: bounded backoff (BDL-4386)', () => {
 		expect(clock.sleeps).to.have.length(0);
 	});
 
-	for (const shape of ['both', 'code', 'errno']) {
+	['both', 'code', 'errno'].forEach((shape) => {
 		it(`(e) pool-acquire timeout (${shape}) rejects once without reconnect delay`, async () => {
 			const clock = fakeClock();
 			const factory = recordingFactory();
@@ -282,7 +282,7 @@ describe('#retryIfConnectionLost: bounded backoff (BDL-4386)', () => {
 			expect(clock.t).to.equal(300);
 			expect(onReconnectRetryFailed.calls).to.have.length(0);
 		});
-	}
+	});
 
 	it('(f) a never-sent error past the window is RETHROWN, not handed to the exit handler', async () => {
 		const clock = fakeClock();
