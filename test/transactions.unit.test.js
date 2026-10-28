@@ -89,6 +89,79 @@ describe('transaction lifecycle unit coverage', () => {
 		]);
 	});
 
+	for (const expected of [undefined, null, false, 0, '', NaN]) {
+		for (const cleanupFails of [false, true]) {
+			it(`rejects a falsy callback throw (${String(
+				expected,
+			)}) with cleanup failure=${cleanupFails}`, async () => {
+				const { events, parent } = createHarness(
+					cleanupFails
+						? {
+								cleanupTransaction: async () => {
+									throw new Error('cleanup');
+								},
+						  }
+						: {},
+				);
+				let rejected = false;
+				let caught;
+				try {
+					await runTransaction(parent, async () => {
+						throw expected;
+					});
+				} catch (error) {
+					rejected = true;
+					caught = error;
+				}
+				expect(rejected).to.equal(true);
+				expect(Object.is(caught, expected)).to.equal(true);
+				expect(events).to.include('rollback');
+				expect(events).not.to.include('commit');
+				expect(events[events.length - 1]).to.equal('release');
+			});
+		}
+	}
+
+	for (const expected of [undefined, null, false, 0, '', NaN]) {
+		for (const phase of [
+			'beginTransaction',
+			'commitTransaction',
+			'cleanupTransaction',
+			'release',
+		]) {
+			it(`preserves a falsy ${phase} rejection (${String(
+				expected,
+			)})`, async () => {
+				const override =
+					phase === 'release'
+						? {
+								acquireTransactionConnection: async () => ({
+									connection: {},
+									release: async () => {
+										throw expected;
+									},
+								}),
+						  }
+						: {
+								[phase]: async () => {
+									throw expected;
+								},
+						  };
+				const { parent } = createHarness(override);
+				let rejected = false;
+				let caught;
+				try {
+					await runTransaction(parent, async () => 42);
+				} catch (error) {
+					rejected = true;
+					caught = error;
+				}
+				expect(rejected).to.equal(true);
+				expect(Object.is(caught, expected)).to.equal(true);
+			});
+		}
+	}
+
 	it('releases after BEGIN failure without issuing rollback', async () => {
 		const expected = new Error('begin failed');
 		const { events, parent } = createHarness({
@@ -180,17 +253,18 @@ describe('transaction lifecycle unit coverage', () => {
 	});
 
 	it('recognizes retryable driver codes through wrapped causes', () => {
-		expect(
-			isRetryableTransactionError({ cause: { code: '40001' } }),
-		).to.equal(true);
+		expect(isRetryableTransactionError({ cause: { code: '40001' } })).to.equal(
+			true,
+		);
 		expect(isRetryableTransactionError({ errno: 1213 })).to.equal(true);
 		// MySQL: a table made after the transaction's first read.
 		expect(
 			isRetryableTransactionError({ code: 'ER_TABLE_DEF_CHANGED' }),
 		).to.equal(true);
 		expect(isRetryableTransactionError({ errno: 1412 })).to.equal(true);
-		expect(isRetryableTransactionError({ code: 'SQLITE_BUSY_TIMEOUT' })).to
-			.equal(true);
+		expect(
+			isRetryableTransactionError({ code: 'SQLITE_BUSY_TIMEOUT' }),
+		).to.equal(true);
 		expect(isRetryableTransactionError({ code: '23505' })).to.equal(false);
 	});
 
