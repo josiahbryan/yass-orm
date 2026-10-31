@@ -15,7 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   expression key part (JSON `->>` functional or multi-valued `CAST(... ARRAY)`) gets ` LOCK=SHARED` with no
   `ALGORITHM`, because MySQL rejects `ALGORITHM=INPLACE` with ERROR 1846 when recreating a functional index on a
   table that already holds one. Raw-string index specs (`'(body(255))'`, `'((CAST(tags as CHAR(255) ARRAY)))'`)
-  carry the same clause. An engine rejection of the clause is reported in the sync's `errors`. Postgres and
+  carry the same clause. An engine rejection of the clause is reported in the sync's `errors`. On a non-InnoDB
+  (e.g. MyISAM) table the asserted `ALGORITHM=INPLACE` now returns ERROR 1845 instead of a silent table copy;
+  that error is reported in schema-sync's errors list. Postgres and
   SQLite output is unchanged.
 - Before building an index on a table of at least 1,000,000 rows or 1 GiB (`DATA_LENGTH + INDEX_LENGTH`),
   schema-sync prints a `LARGE INDEX BUILD` warning naming the table, the statement and the replica lag it

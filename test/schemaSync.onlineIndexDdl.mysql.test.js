@@ -168,6 +168,40 @@ describe('#schemaSync online index DDL on live MySQL (BDL-4421)', () => {
 		});
 	});
 
+	it('a second sync of the same def is a no-op: 0 errors, no (re)Creating index lines', async () => {
+		const cap = captureConsole('log');
+		let second;
+		try {
+			second = await syncSchemaToDb(YassORM.convertDefinition(shapesDef));
+		} finally {
+			cap.restore();
+		}
+		expect(
+			second.errors,
+			JSON.stringify(second.errors.map(errorText)),
+		).to.have.length(0);
+		expect(
+			cap.captured.filter((line) => line.includes(CREATE_MARKER)),
+			'index churn on re-sync',
+		).to.have.length(0);
+	});
+
+	it('the real estimateTableSize runs against the live engine', async () => {
+		const conn = await dbh({ ignoreCachedConnections: true });
+		let size;
+		try {
+			size = await new MySQLDialect().estimateTableSize(conn, shapesTable);
+		} finally {
+			await conn.end();
+		}
+		expect(size).to.be.an('object');
+		[size.rows, size.bytes].forEach((v) => {
+			expect(v === null || typeof v === 'number', String(v)).to.equal(true);
+		});
+		expect(size.bytes).to.be.a('number');
+		expect(size.bytes).to.be.greaterThan(0);
+	});
+
 	it('red arm: an engine rejection of the clause surfaces in errors (FULLTEXT under LOCK=NONE)', async () => {
 		const redDef = ({ types: t }) => ({
 			table: redTable,
