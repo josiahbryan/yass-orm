@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- MySQL schema-sync states the online level on every `CREATE INDEX` it emits (BDL-4421), so the engine
+  fails fast instead of silently choosing a table-copy or blocking path. Plain, UNIQUE, composite, prefix and
+  `DESC` indexes get ` ALGORITHM=INPLACE LOCK=NONE`; FULLTEXT gets ` ALGORITHM=INPLACE LOCK=SHARED`; an
+  expression key part (JSON `->>` functional or multi-valued `CAST(... ARRAY)`) gets ` LOCK=SHARED` with no
+  `ALGORITHM`, because MySQL rejects `ALGORITHM=INPLACE` with ERROR 1846 when recreating a functional index on a
+  table that already holds one. Raw-string index specs (`'(body(255))'`, `'((CAST(tags as CHAR(255) ARRAY)))'`)
+  carry the same clause. An engine rejection of the clause is reported in the sync's `errors`. On a non-InnoDB
+  (e.g. MyISAM) table the asserted `ALGORITHM=INPLACE` now returns ERROR 1845 instead of a silent table copy;
+  that error is reported in schema-sync's errors list. Postgres and
+  SQLite output is unchanged.
+- Before building an index on a table of at least 1,000,000 rows or 1 GiB (`DATA_LENGTH + INDEX_LENGTH`),
+  schema-sync prints a `LARGE INDEX BUILD` warning naming the table, the statement and the replica lag it
+  causes. If the size cannot be read it warns that the size is unknown. The warning never blocks or fails the
+  create.
 - Schema-sync checks a string link column against the key it points at: a `t.linked` link narrower than the
   `t.stringKey({ keyWidth })` of the registered model it names is reported in `result.warnings` (and printed as
   `Warning: ...`), because an id longer than the link fails on insert (strict MySQL, Postgres) or is cut short
