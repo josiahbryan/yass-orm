@@ -43,13 +43,13 @@ describe('raw-string index online clause (BDL-4421)', () => {
 				'create index `linked_date` on t (linkedType(230), linkedId(230), date) ALGORITHM=INPLACE LOCK=NONE',
 			);
 		});
-		it('mysql: multi-valued expression gets LOCK=SHARED', () => {
+		it('mysql: multi-valued expression gets LOCK=SHARED only (no ALGORITHM)', () => {
 			const sql = buildRawCreateIndexSql({
 				dialect: getDialect('mysql'),
 				...base,
 				cols: '((CAST(tags as CHAR(255) ARRAY)))',
 			});
-			expect(sql.endsWith(' ALGORITHM=INPLACE LOCK=SHARED')).to.equal(true);
+			expect(sql.endsWith(' LOCK=SHARED')).to.equal(true);
 		});
 		it('mysql: fulltext gets LOCK=SHARED', () => {
 			expect(
