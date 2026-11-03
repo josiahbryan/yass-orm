@@ -1187,6 +1187,8 @@ its own configuration and local schema list.
 ## Recent changes
 
 ---
+- 2026-11-03 (unreleased)
+  - (perf) **A successful `pquery` no longer formats a stack.** Every query built and formatted `new Error().stack` before running, about 0.1 ms of CPU per query, paid even when nothing read it. The caller's stack is now taken only on a failure (still on the wrapped error's `.originalStack` and in the logged banner; V8's async stack trace names awaiting callers) or for an enabled `QueryLogger`, whose lines keep their `trace`. `QueryLogger.isEnabled()` is new.
 - 2026-10-27 (unreleased)
   - (fix) **A refused key narrowing now fails schema-sync.** The refusal returned a bare error with no `failed` count, so `bin/schema-sync` exited 0 and its summary did not name it. A refusal is now a `{ table, description, sql, error }` record with `failed` set.
   - (feat) **Link columns are checked against the key they point at.** A `t.linked` string link narrower than the `t.stringKey({ keyWidth })` of the registered model it names is reported in `result.warnings`; narrowing a link column is refused before any DDL, like a key.

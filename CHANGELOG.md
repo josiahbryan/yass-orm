@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `pquery` (and the read-only connection's) no longer captures and formats the caller's stack on every query
+  (about 0.1 ms of CPU each). The stack is taken on a failure (`.originalStack`, the logged banner; awaiting callers
+  appear through V8's async stack trace) or when `QueryLogger` is enabled (each line's `trace`). Adds
+  `QueryLogger.isEnabled()`.
+
 ### Added
 
 - Schema-sync checks a string link column against the key it points at: a `t.linked` link narrower than the
