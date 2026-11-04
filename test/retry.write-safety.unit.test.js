@@ -259,6 +259,47 @@ describe('#retryIfConnectionLost: retry by (error, statement) (BDL-4470)', () =>
 			expect(attempts).to.equal(1);
 		});
 
+		it('a write the server rejected (duplicate key) does not block the replay of a lost read', async () => {
+			const dup = Object.assign(new Error('Duplicate entry'), {
+				code: 'ER_DUP_ENTRY',
+				errno: 1062,
+			});
+			const db = fakeDb({
+				failures: { INSERT: [dup, dup], SELECT: [socketClosed()] },
+			});
+			const { attempts, error } = await run(async (conn) => {
+				await conn.query('INSERT INTO ledger VALUES (1)').catch(() => {});
+				return conn.query('SELECT 1');
+			}, db);
+			expect(error).to.equal(undefined);
+			expect(attempts).to.equal(2);
+		});
+
+		it('the dead pool is still replaced (in the background) when the typed error is thrown', async () => {
+			const options = [];
+			const db = fakeDb({
+				failures: { 'INSERT INTO ledger': [socketClosed()] },
+				commitsBeforeFailing: true,
+			});
+			const factory = async (opts) => {
+				options.push(opts);
+				return db;
+			};
+			const { error } = await run(
+				(conn) => conn.query('INSERT INTO ledger VALUES (1)'),
+				db,
+				{ handleFactory: factory },
+			);
+			await new Promise((resolve) => {
+				setImmediate(resolve);
+			});
+			expect(error && error.code).to.equal(WRITE_OUTCOME_UNKNOWN);
+			expect(options).to.deep.equal([
+				undefined,
+				{ ignoreCachedConnections: true, closeReplacedPool: true },
+			]);
+		});
+
 		it('a write still in flight when a read dies blocks the replay', async () => {
 			let release;
 			const db = trackStatements({
@@ -331,6 +372,7 @@ describe('#retryIfConnectionLost: retry by (error, statement) (BDL-4470)', () =>
 				'SELECT LAST_INSERT_ID()',
 				'SELECT COUNT(*) FROM t WHERE updatedAt > NOW()',
 				'/*+ MAX_EXECUTION_TIME(1000) */ SELECT 1',
+				"WITH x AS (SELECT REPLACE(name, '-', '') n FROM t) SELECT * FROM x",
 			].forEach((sql) => expect(isReadStatement(sql), sql).to.equal(true));
 		});
 
@@ -369,6 +411,10 @@ describe('#retryIfConnectionLost: retry by (error, statement) (BDL-4470)', () =>
 				'-- note\nUPDATE t SET a=1',
 				'(INSERT INTO t VALUES (1))',
 				'with x as (select 1) select * from x for update',
+				"SELECT pg_notify('jobs', 'x')",
+				"select set_config('a.b', 'c', false)",
+				'SELECT lo_create(0)',
+				'select pg_terminate_backend(42)',
 				'CALL proc()',
 				'LOCK TABLES t WRITE',
 				'',

@@ -19,9 +19,9 @@ const { startLoseReplyProxy } = require('./helpers/lose-reply-proxy');
  *   ERR_WRITE_OUTCOME_UNKNOWN, and the table holds the row once.
  * - The positive arms: a read that lost its reply is retried, and so is a
  *   write the caller marked idempotent.
- * - create() on a uuidKey table and patch() are replay-safe: the replay finds
- *   (or rewrites) the row the first attempt wrote. create() on an
- *   auto-increment table, reallyDelete() and raw withDbh() writes are not.
+ * - create() on a uuidKey table is replay-safe: the replay finds the row the
+ *   first attempt wrote. create() on an auto-increment table, patch(),
+ *   reallyDelete() and raw withDbh() writes are not replayed.
  *
  * MySQL only (`npm test`). The proxy matches the SQL text the mariadb driver
  * sends.
@@ -36,7 +36,7 @@ describe('#retryIfConnectionLost: a write that lost its reply is never run twice
 
 	const noSleep = async () => {};
 
-	// Every model here: no nonce, so patch() is replay-safe (see obj.js).
+	// Models without the test config's common fields (nonce among them).
 	const ledgerDef = ({ types: t }) => ({
 		table: 'yass_noreplay_ledger',
 		schema: { id: t.idKey, note: t.string },
@@ -222,7 +222,7 @@ describe('#retryIfConnectionLost: a write that lost its reply is never run twice
 			expect(await count('yass_noreplay_ledger')).to.equal(1);
 		});
 
-		it('withDbh(callback, {}, { idempotent: true }) is retried', async () => {
+		it('withDbh(callback, { idempotent: true }) is retried', async () => {
 			let attempts = 0;
 			proxy.loseReplyTo(/insert ignore into `yass_noreplay_ledger`/i);
 			await Ledger.withDbh(
@@ -232,7 +232,6 @@ describe('#retryIfConnectionLost: a write that lost its reply is never run twice
 						`insert ignore into \`${table}\` (id, note) values (77, 'ignored-twice')`,
 					);
 				},
-				{},
 				{ idempotent: true },
 			);
 			expect(proxy.state.dropped).to.equal(1);
@@ -285,13 +284,14 @@ describe('#retryIfConnectionLost: a write that lost its reply is never run twice
 			expect(await count('yass_noreplay_ledger')).to.equal(1);
 		});
 
-		it('patch() with absolute values is replayed', async () => {
+		it('patch() is not replayed (a replay re-fires UPDATE triggers and can overwrite a later patch)', async () => {
 			const thing = await UuidThing.create({ name: 'p', score: 1 });
 			proxy.loseReplyTo(/update `yass_noreplay_uuid`/i);
-			await thing.patch({ score: 5 });
+			const error = await rejectionOf(thing.patch({ score: 5 }));
 
 			expect(proxy.state.dropped).to.equal(1);
-			expect(thing.score).to.equal(5);
+			expect(error && error.code).to.equal('ERR_WRITE_OUTCOME_UNKNOWN');
+			// The first attempt did land: the caller is told it may have.
 			expect(await count('yass_noreplay_uuid', 'score=5')).to.equal(1);
 		});
 

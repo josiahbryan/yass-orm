@@ -25,11 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `{ idempotent }` option on `retryIfConnectionLost` (module and model) and `withDbh(callback, props, options)`;
+- `{ idempotent }` option on `retryIfConnectionLost` (module and model) and `withDbh(callback, options)` /
+  `withDbh(sql, props, options)`;
   `WriteOutcomeUnknownError` and `WRITE_OUTCOME_UNKNOWN` exported and typed.
 - `create()` on a `t.uuidKey` table with no id given is replay-safe: a replay that hits a duplicate key on its
-  own pre-made id reads the row back and returns it. `patch()` is replay-safe (absolute values), except on a
-  model with a `nonce` field.
+  own pre-made id reads the row back and returns it. `patch()` is NOT replayed: a replay would re-fire `UPDATE`
+  triggers and could overwrite another writer's patch that landed in between.
 
 ### Changed
 
