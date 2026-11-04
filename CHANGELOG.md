@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`retryIfConnectionLost` no longer runs a write twice** (BDL-4470). When the connection died after an
+  autocommit write committed but before its reply arrived, the callback was retried and the write applied
+  again. Now errors that prove the statement was never sent (`ECONNREFUSED`, 45013 `ER_CMD_CONNECTION_CLOSED`,
+  `NULL_HANDLE`) are retried. A mid-flight death (`PROTOCOL_CONNECTION_LOST`, 45009, socket closed) is retried
+  only when the attempt sent no write, or the call is `{ idempotent: true }`. Otherwise it rejects with
+  `WriteOutcomeUnknownError` (`code: 'ERR_WRITE_OUTCOME_UNKNOWN'`, `cause`: the driver error). Writes are
+  seen on every pool's `query` / `execute` / `batch`. **Behaviour change:** during a database switchover a
+  write that was in flight now fails with that error instead of being retried.
+
+### Added
+
+- `{ idempotent }` option on `retryIfConnectionLost` (module and model) and `withDbh(callback, props, options)`;
+  `WriteOutcomeUnknownError` and `WRITE_OUTCOME_UNKNOWN` exported and typed.
+- `create()` on a `t.uuidKey` table with no id given is replay-safe: a replay that hits a duplicate key on its
+  own pre-made id reads the row back and returns it. `patch()` is replay-safe (absolute values), except on a
+  model with a `nonce` field.
+
 ### Changed
 
 - `pquery` (and the read-only connection's) no longer captures and formats the caller's stack on every query

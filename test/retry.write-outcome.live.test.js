@@ -133,9 +133,10 @@ describe('#retryIfConnectionLost: a write that lost its reply is never run twice
 			expect(error.code).to.equal('ERR_WRITE_OUTCOME_UNKNOWN');
 			expect(error.name).to.equal('WriteOutcomeUnknownError');
 			expect(error).to.be.instanceOf(YassORM.WriteOutcomeUnknownError);
-			expect(isConnectionLost(error.cause), 'cause is the driver error').to.equal(
-				true,
-			);
+			expect(
+				isConnectionLost(error.cause),
+				'cause is the driver error',
+			).to.equal(true);
 			expect(
 				isConnectionLost(error),
 				'the typed error is not itself a lost connection (no outer replay)',
@@ -223,7 +224,7 @@ describe('#retryIfConnectionLost: a write that lost its reply is never run twice
 
 		it('withDbh(callback, {}, { idempotent: true }) is retried', async () => {
 			let attempts = 0;
-			proxy.loseReplyTo(/insert into `yass_noreplay_ledger`/i);
+			proxy.loseReplyTo(/insert ignore into `yass_noreplay_ledger`/i);
 			await Ledger.withDbh(
 				(db, table) => {
 					attempts += 1;
@@ -234,6 +235,7 @@ describe('#retryIfConnectionLost: a write that lost its reply is never run twice
 				{},
 				{ idempotent: true },
 			);
+			expect(proxy.state.dropped).to.equal(1);
 			expect(attempts).to.equal(2);
 			expect(await count('yass_noreplay_ledger')).to.equal(1);
 		});
@@ -248,9 +250,9 @@ describe('#retryIfConnectionLost: a write that lost its reply is never run twice
 			expect(thing.id).to.be.a('string');
 			expect(thing.name).to.equal('once');
 			expect(await count('yass_noreplay_uuid')).to.equal(1);
-			expect(await count('yass_noreplay_uuid', 'id=:id', { id: thing.id })).to.equal(
-				1,
-			);
+			expect(
+				await count('yass_noreplay_uuid', 'id=:id', { id: thing.id }),
+			).to.equal(1);
 		});
 
 		it('create() on a uuidKey table: the read-back lost its reply after the INSERT landed', async () => {

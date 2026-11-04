@@ -32,9 +32,12 @@ const socketClosed = () =>
 		{ errno: 45009, code: 'ER_SOCKET_UNEXPECTED_CLOSE' },
 	);
 const protocolLost = () =>
-	Object.assign(new Error('Connection lost: The server closed the connection.'), {
-		code: 'PROTOCOL_CONNECTION_LOST',
-	});
+	Object.assign(
+		new Error('Connection lost: The server closed the connection.'),
+		{
+			code: 'PROTOCOL_CONNECTION_LOST',
+		},
+	);
 const cmdConnectionClosed = () =>
 	Object.assign(
 		new Error(
@@ -58,7 +61,8 @@ const noSleep = async () => {};
 function fakeDb({ failures = {}, commitsBeforeFailing = false } = {}) {
 	const db = { sent: [], committed: [] };
 	db.query = async (sqlOrOptions) => {
-		const sql = typeof sqlOrOptions === 'string' ? sqlOrOptions : sqlOrOptions.sql;
+		const sql =
+			typeof sqlOrOptions === 'string' ? sqlOrOptions : sqlOrOptions.sql;
 		db.sent.push(sql);
 		const key = Object.keys(failures).find((prefix) => sql.startsWith(prefix));
 		const error = key && failures[key].shift();
@@ -161,7 +165,9 @@ describe('#retryIfConnectionLost: retry by (error, statement) (BDL-4470)', () =>
 			['ECONNREFUSED', connRefused],
 		].forEach(([label, makeError]) => {
 			it(`${label} on an INSERT: the write never went out, so it is retried`, async () => {
-				const db = fakeDb({ failures: { 'INSERT INTO ledger': [makeError()] } });
+				const db = fakeDb({
+					failures: { 'INSERT INTO ledger': [makeError()] },
+				});
 				const { attempts, error } = await run(
 					(conn) => conn.query('INSERT INTO ledger VALUES (1)'),
 					db,
@@ -196,7 +202,9 @@ describe('#retryIfConnectionLost: retry by (error, statement) (BDL-4470)', () =>
 				options.push(opts);
 				return db;
 			};
-			await run((conn) => conn.query('SELECT 1'), db, { handleFactory: factory });
+			await run((conn) => conn.query('SELECT 1'), db, {
+				handleFactory: factory,
+			});
 			expect(options[1]).to.deep.equal({
 				ignoreCachedConnections: true,
 				closeReplacedPool: true,
@@ -206,7 +214,9 @@ describe('#retryIfConnectionLost: retry by (error, statement) (BDL-4470)', () =>
 
 	describe('reads', () => {
 		it('a SELECT whose connection died mid-flight is retried', async () => {
-			const db = fakeDb({ failures: { SELECT: [socketClosed(), protocolLost()] } });
+			const db = fakeDb({
+				failures: { SELECT: [socketClosed(), protocolLost()] },
+			});
 			const { attempts, error } = await run(
 				(conn) => conn.query({ sql: 'SELECT * FROM ledger' }),
 				db,
@@ -333,7 +343,9 @@ describe('#retryIfConnectionLost: retry by (error, statement) (BDL-4470)', () =>
 				'',
 				undefined,
 				null,
-			].forEach((sql) => expect(isReadStatement(sql), String(sql)).to.equal(false));
+			].forEach((sql) =>
+				expect(isReadStatement(sql), String(sql)).to.equal(false),
+			);
 		});
 	});
 
