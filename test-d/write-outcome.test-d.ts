@@ -22,6 +22,6 @@ expectType<Promise<number>>(
 	DatabaseObject.retryIfConnectionLost(async () => 1, options),
 );
 expectType<Promise<number>>(
-	DatabaseObject.withDbh(async () => 1, {}, { idempotent: true }),
+	DatabaseObject.withDbh(async () => 1, { idempotent: true }),
 );
 DatabaseObject.withDbh('UPDATE t SET a=1', {}, options);

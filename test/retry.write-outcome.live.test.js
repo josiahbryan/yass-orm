@@ -4,7 +4,11 @@ const YassORM = require('../lib');
 const config = require('../lib/config');
 const { dbh } = require('../lib/dbh');
 const { retryIfConnectionLost, isConnectionLost } = require('../lib/utils');
-const { isPostgres, recreateTables } = require('./helpers/characterize');
+const {
+	isPostgres,
+	recreateTables,
+	rejectionOf,
+} = require('./helpers/characterize');
 const { startLoseReplyProxy } = require('./helpers/lose-reply-proxy');
 
 /**
@@ -66,15 +70,6 @@ describe('#retryIfConnectionLost: a write that lost its reply is never run twice
 		);
 		return Number(n);
 	};
-	const rejectionOf = async (promise) => {
-		try {
-			await promise;
-		} catch (err) {
-			return err;
-		}
-		return undefined;
-	};
-
 	before(async () => {
 		// A schema without the test config's common fields (nonce among them).
 		savedCommonFields = config.commonFields;

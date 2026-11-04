@@ -652,7 +652,6 @@ export interface DatabaseObjectStatic<
 	 */
 	withDbh<T>(
 		fn: (dbh: DbHandle, tableName: string) => Promise<T> | T,
-		props?: AnyRecord,
 		options?: RetryOptions,
 	): Promise<T>;
 	withDbh(sql: string, props?: AnyRecord, options?: RetryOptions): Promise<any>;
@@ -902,7 +901,6 @@ export declare class DatabaseObject {
 	 */
 	static withDbh<T>(
 		fn: (dbh: DbHandle, tableName: string) => Promise<T> | T,
-		props?: AnyRecord,
 		options?: RetryOptions,
 	): Promise<T>;
 
