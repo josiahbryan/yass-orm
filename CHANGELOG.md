@@ -16,7 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only when the attempt sent no write, or the call is `{ idempotent: true }`. Otherwise it rejects with
   `WriteOutcomeUnknownError` (`code: 'ERR_WRITE_OUTCOME_UNKNOWN'`, `cause`: the driver error). Writes are
   seen on every pool's `query` / `execute` / `batch`. **Behaviour change:** during a database switchover a
-  write that was in flight now fails with that error instead of being retried.
+  write that was in flight now fails with that error instead of being retried. A statement is a read by its
+  text: `SELECT` / `SHOW` / `DESCRIBE` / a DML-free `WITH`, with no second statement, row lock (`FOR UPDATE`,
+  `LOCK IN SHARE MODE`, ...), `INTO`, `:=`, `/*!` or state-changing built-in (`GET_LOCK`, `nextval`,
+  advisory locks, `LAST_INSERT_ID(expr)`); anything else (`CALL`, unknown text) is a write. **Known gap:** a
+  `SELECT` that calls a user-defined function with side effects is classified as a read and can be retried;
+  run such calls in a transaction or outside `retryIfConnectionLost`.
 
 ### Added
 
