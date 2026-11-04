@@ -1184,9 +1184,79 @@ sync. Review the count and hot tables before rollout; schedule the necessary DDL
 Schemas for external/qualified databases are refused: inventory each database with
 its own configuration and local schema list.
 
+## Lost connections and retries (`retryIfConnectionLost`)
+
+Model methods without `{ tx }` (`get`, `search`, `find`, `create`, `patch`,
+`withDbh`, ...) run on a pooled handle under `retryIfConnectionLost`. When the
+connection is lost, the call is retried with backoff for up to 30 s
+(`setConnectRetryWindowMs`). Since BDL-4470 a call is retried only when
+running it again cannot apply a write twice:
+
+- **The statement never reached the server:** always retried. This covers
+  `ECONNREFUSED`, `ER_CMD_CONNECTION_CLOSED` / 45013 ("Cannot execute new
+  commands: connection closed") and `NULL_HANDLE` (no handle could be had).
+- **The connection died mid-statement** (`PROTOCOL_CONNECTION_LOST`,
+  `ER_SOCKET_UNEXPECTED_CLOSE` / 45009, "socket has unexpectedly been
+  closed"): the server may have run the statement and only the reply was
+  lost. The call is retried if it sent only reads (`SELECT`, `SHOW`,
+  `DESCRIBE`, a `WITH` query without `INSERT`/`UPDATE`/`DELETE`), or if it is
+  marked `idempotent`.
+- **Otherwise**, once a write in the call may have landed (whatever the
+  error, since the whole callback would run again), the call rejects with
+  **`WriteOutcomeUnknownError`** (`code: 'ERR_WRITE_OUTCOME_UNKNOWN'`, `cause`:
+  the driver's error). The write may or may not be in the database. Check
+  before you retry it.
+
+```javascript
+const { WriteOutcomeUnknownError } = require('yass-orm');
+
+try {
+  await Ledger.withDbh((dbh, table) =>
+    dbh.pquery(`UPDATE ${table} SET balance = balance - :amount WHERE id = :id`, { id, amount }),
+  );
+} catch (err) {
+  if (err instanceof WriteOutcomeUnknownError) {
+    // It may have been applied. Look before doing it again.
+  }
+  throw err;
+}
+
+// Running it twice is harmless: let it be retried.
+await Model.withDbh((dbh, table) => dbh.pquery(`UPDATE ${table} SET status = 'done' WHERE id = :id`, { id }), { idempotent: true });
+// SQL text takes its params first: Model.withDbh(sql, params, { idempotent: true })
+await Model.retryIfConnectionLost((dbh) => dbh.pquery(/* ... */), { idempotent: true });
+```
+
+What the model methods do:
+
+| Method | After a lost connection mid-write |
+| --- | --- |
+| `create()` on a `t.uuidKey` table, with no id given | Replayed. The id is made before the first attempt. If the replay's `INSERT` fails on that id, the first attempt landed, and the row is read back by id and returned. |
+| `create()` with an id you gave, or on an auto-increment table | `WriteOutcomeUnknownError`. Nothing proves the row is ours. |
+| `patch()` | `WriteOutcomeUnknownError`. It sets absolute values, but a replay fires the table's `UPDATE` triggers again and can overwrite another writer's patch that landed in between (the retry runs up to 30 s later). |
+| `reallyDelete()`, `patchIf()`, `createIgnore()`, `findOrCreate()`, raw `withDbh` / `queryCallback` writes | `WriteOutcomeUnknownError` (`findOrCreate` runs in a transaction, which is never re-run). |
+| Reads | Retried. |
+
+Every statement sent through a yass handle is classified when it is sent
+(`lib/write-safety.js`), including raw `dbh.query`. It is a read only when its
+verb is `SELECT`, `SHOW`, `DESCRIBE` or a `WITH` with no `INSERT`/`UPDATE`/
+`DELETE`, and it has no second statement, row lock (`FOR UPDATE`, `FOR SHARE`,
+`LOCK IN SHARE MODE`), `INTO`, `:=`, `/*!` executable comment or
+state-changing built-in (`GET_LOCK`, `RELEASE_LOCK`, `nextval`, `setval`,
+advisory locks, `LAST_INSERT_ID(expr)`). Anything else, `CALL` and unknown
+text included, is a write. **Known gap:** a `SELECT` that calls a user-defined
+function with side effects cannot be told from its text and counts as a read,
+so keep such calls out of the retry, or run them in a transaction. A transaction that got past `BEGIN` is
+never re-run, as before. On a MySQL switchover, writes now fail loudly instead
+of sometimes being applied twice.
+
 ## Recent changes
 
 ---
+- 2026-11-04 (unreleased)
+  - (fix) **A write whose reply was lost was run twice** (BDL-4470, follow-on to BDL-4386; found by kh63, Tessera). `retryIfConnectionLost` retried on the error alone. When the connection died after an autocommit write had committed but before its reply came back, it ran the callback again and the write was applied twice. The retry now looks at the error and at what the attempt sent (see "Lost connections and retries"). Errors that prove nothing was sent (`ECONNREFUSED`, 45013 `ER_CMD_CONNECTION_CLOSED`, which moved out of the died-mid-flight set, and `NULL_HANDLE`) are retried. A mid-flight death (`PROTOCOL_CONNECTION_LOST`, 45009, socket closed) is retried for reads and for calls marked `{ idempotent: true }`. Otherwise, once a write in the attempt may have landed (in flight, done, or under a nested retry), the call rejects with the new **`WriteOutcomeUnknownError`** (`code: 'ERR_WRITE_OUTCOME_UNKNOWN'`, the driver error as `cause`). It is never retried by an enclosing retry, and never goes to `onReconnectRetryFailed`. Every pool `dbh()` makes wraps `query` / `execute` / `batch` (`trackStatements`), so raw writes count too. New `{ idempotent }` option on `retryIfConnectionLost` (module and model, static and instance), and `withDbh(callback, { idempotent })` / `withDbh(sql, props, { idempotent })`. A write the server rejected (duplicate key, constraint) does not count as landed. On a typed rethrow the dead pool is still replaced, in the background. Exported from the root and typed. Not changed: COMMIT inside `dbh.transaction` (a lost reply to it surfaces the driver error, as before, with `transactionBegan`).
+  - (feat) **Writes that are safe to replay are retried again.** `create()` on a `t.uuidKey` table, with no id given, is replayed: its id is made before the first attempt, and a replay that hits a duplicate key on it reads the row back by id from the primary and returns it. `patch()` is not replayed: a replay re-fires `UPDATE` triggers and can overwrite a later writer's patch (found in review). An auto-increment `create()`, a `create()` with an id you gave, `reallyDelete()` and raw `withDbh` writes are not replayed.
+  - (test) `test/retry.write-outcome.live.test.js` (live MySQL): a TCP proxy (`test/helpers/lose-reply-proxy.js`) lets the server commit a statement, then drops its reply and closes the socket. Control (kh63's probe): an `INSERT` that lost its reply. Before the fix: attempts=2, writes=2. Now: attempts=1, writes=1, `ERR_WRITE_OUTCOME_UNKNOWN`. Known gap: a `SELECT` calling a user-defined function with side effects counts as a read. Also covered: a lost read is retried; a write followed by a lost read is not replayed; `idempotent` writes are replayed; uuidKey `create()` survives a lost `INSERT` or read-back reply with one row; auto-increment and caller-id `create()`, `patch()`, `reallyDelete()` and raw `withDbh` are not replayed. `test/retry.write-safety.unit.test.js`: the never-sent arms (45013, `ECONNREFUSED`, `NULL_HANDLE`), in-flight, nested and window-exhausted writes, and the statement classifier. `test-d/write-outcome.test-d.ts`. Red first.
 - 2026-11-03 (unreleased)
   - (perf) **A successful `pquery` no longer formats a stack.** Every query built and formatted `new Error().stack` before running, about 0.1 ms of CPU per query, paid even when nothing read it. The caller's stack is now taken only on a failure (still on the wrapped error's `.originalStack` and in the logged banner; V8's async stack trace names awaiting callers) or for an enabled `QueryLogger`, whose lines keep their `trace`. `QueryLogger.isEnabled()` is new.
 - 2026-10-28 (unreleased)

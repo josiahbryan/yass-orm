@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`retryIfConnectionLost` no longer runs a write twice** (BDL-4470). When the connection died after an
+  autocommit write committed but before its reply arrived, the callback was retried and the write applied
+  again. Now errors that prove the statement was never sent (`ECONNREFUSED`, 45013 `ER_CMD_CONNECTION_CLOSED`,
+  `NULL_HANDLE`) are retried. A mid-flight death (`PROTOCOL_CONNECTION_LOST`, 45009, socket closed) is retried
+  only when the attempt sent no write, or the call is `{ idempotent: true }`. Otherwise it rejects with
+  `WriteOutcomeUnknownError` (`code: 'ERR_WRITE_OUTCOME_UNKNOWN'`, `cause`: the driver error). Writes are
+  seen on every pool's `query` / `execute` / `batch`. **Behaviour change:** during a database switchover a
+  write that was in flight now fails with that error instead of being retried. A statement is a read by its
+  text: `SELECT` / `SHOW` / `DESCRIBE` / a DML-free `WITH`, with no second statement, row lock (`FOR UPDATE`,
+  `LOCK IN SHARE MODE`, ...), `INTO`, `:=`, `/*!` or state-changing built-in (`GET_LOCK`, `nextval`,
+  advisory locks, `LAST_INSERT_ID(expr)`); anything else (`CALL`, unknown text) is a write. **Known gap:** a
+  `SELECT` that calls a user-defined function with side effects is classified as a read and can be retried;
+  run such calls in a transaction or outside `retryIfConnectionLost`.
+
+### Added
+
+- `{ idempotent }` option on `retryIfConnectionLost` (module and model) and `withDbh(callback, options)` /
+  `withDbh(sql, props, options)`;
+  `WriteOutcomeUnknownError` and `WRITE_OUTCOME_UNKNOWN` exported and typed.
+- `create()` on a `t.uuidKey` table with no id given is replay-safe: a replay that hits a duplicate key on its
+  own pre-made id reads the row back and returns it. `patch()` is NOT replayed: a replay would re-fire `UPDATE`
+  triggers and could overwrite another writer's patch that landed in between.
+
 ### Changed
 
 - `pquery` (and the read-only connection's) no longer captures and formats the caller's stack on every query

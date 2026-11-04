@@ -82,6 +82,32 @@ export declare class TransactionCancelledError extends Error {
 	transactionBegan?: boolean;
 }
 
+/** `code` of a WriteOutcomeUnknownError */
+export declare const WRITE_OUTCOME_UNKNOWN: 'ERR_WRITE_OUTCOME_UNKNOWN';
+
+/**
+ * What retryIfConnectionLost (and so withDbh, create, reallyDelete, ...)
+ * rejects with instead of running its callback again: the connection was lost
+ * after the callback sent a write, so the write may have been applied.
+ */
+export declare class WriteOutcomeUnknownError extends Error {
+	constructor(cause?: unknown);
+	readonly code: 'ERR_WRITE_OUTCOME_UNKNOWN';
+	/** The driver's connection-lost error */
+	readonly cause: unknown;
+}
+
+/** Options for retryIfConnectionLost on a model, and withDbh. */
+export interface RetryOptions {
+	/**
+	 * Running the callback again is safe even after its writes landed (it sets
+	 * absolute values, or checks for its own earlier write). Without it, a
+	 * connection lost after a write was sent rejects with
+	 * WriteOutcomeUnknownError instead of re-running the callback.
+	 */
+	idempotent?: boolean;
+}
+
 /** The handle a `transaction()` callback gets */
 export type TransactionHandle = DbHandle & {
 	/**
@@ -510,7 +536,10 @@ export interface ModelInstanceMethods {
 	/** Underlying db handle (async). */
 	dbh(): Promise<DbHandle>;
 
-	retryIfConnectionLost<T>(fn: (dbh: DbHandle) => Promise<T>): Promise<T>;
+	retryIfConnectionLost<T>(
+		fn: (dbh: DbHandle) => Promise<T>,
+		options?: RetryOptions,
+	): Promise<T>;
 
 	mutateQuery(query: AnyRecord, sqlData: any, ctx: any): Promise<void>;
 
@@ -610,7 +639,10 @@ export interface DatabaseObjectStatic<
 
 	dbh(): Promise<DbHandle>;
 
-	retryIfConnectionLost<T>(fn: (dbh: DbHandle) => Promise<T>): Promise<T>;
+	retryIfConnectionLost<T>(
+		fn: (dbh: DbHandle) => Promise<T>,
+		options?: RetryOptions,
+	): Promise<T>;
 
 	/**
 	 * Access raw db handle.
@@ -620,8 +652,9 @@ export interface DatabaseObjectStatic<
 	 */
 	withDbh<T>(
 		fn: (dbh: DbHandle, tableName: string) => Promise<T> | T,
+		options?: RetryOptions,
 	): Promise<T>;
-	withDbh(sql: string, props?: AnyRecord): Promise<any>;
+	withDbh(sql: string, props?: AnyRecord, options?: RetryOptions): Promise<any>;
 
 	/** Execute raw SQL and return typed instances */
 	fromSql(
@@ -806,7 +839,10 @@ export declare class DatabaseObject {
 	/** Underlying db handle (async). */
 	dbh(): Promise<DbHandle>;
 
-	retryIfConnectionLost<T>(fn: (dbh: DbHandle) => Promise<T>): Promise<T>;
+	retryIfConnectionLost<T>(
+		fn: (dbh: DbHandle) => Promise<T>,
+		options?: RetryOptions,
+	): Promise<T>;
 
 	mutateQuery(query: AnyRecord, sqlData: any, ctx: any): Promise<void>;
 
@@ -854,6 +890,7 @@ export declare class DatabaseObject {
 
 	static retryIfConnectionLost<T>(
 		fn: (dbh: DbHandle) => Promise<T>,
+		options?: RetryOptions,
 	): Promise<T>;
 
 	/**
@@ -864,9 +901,14 @@ export declare class DatabaseObject {
 	 */
 	static withDbh<T>(
 		fn: (dbh: DbHandle, tableName: string) => Promise<T> | T,
+		options?: RetryOptions,
 	): Promise<T>;
 
-	static withDbh(sql: string, props?: AnyRecord): Promise<any>;
+	static withDbh(
+		sql: string,
+		props?: AnyRecord,
+		options?: RetryOptions,
+	): Promise<any>;
 
 	static fromSql<T extends AnyModelClass>(
 		this: T,
@@ -1624,6 +1666,11 @@ export declare function retryIfConnectionLost<T>(
 		sleep?: (ms: number) => Promise<void>;
 		now?: () => number;
 		onReconnectRetryFailed?: (ex: Error) => any;
+		/**
+		 * Re-run the callback after a lost connection even when a write it sent
+		 * may have landed. Default false: it rejects with WriteOutcomeUnknownError.
+		 */
+		idempotent?: boolean;
 	},
 ): Promise<T>;
 
