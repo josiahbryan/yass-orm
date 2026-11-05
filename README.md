@@ -848,7 +848,7 @@ consume:
 | Option | Default | Meaning |
 |--------|---------|---------|
 | `connectionLimit` | `10` | Ceiling — the most connections the pool will ever open. |
-| `minimumIdle` | driver default (`= connectionLimit`) | Floor — connections the pool keeps open even when idle. |
+| `minimumIdle` | driver default (MySQL: `= connectionLimit`; Postgres: `0`) | Floor — connections the pool keeps open even when idle. On Postgres it is pg-pool's `min`. |
 | `acquireTimeout` | driver default (10s) for the driver's per-query acquire; **the first-connect probe is bounded at 45s by default** (see below) | How long an acquire waits for a free connection before failing with errno 45028. |
 | `idleTimeout` | `600` (seconds) | How long an idle connection may sit before the pool reaps it. Must be a positive whole number; `0` is rejected (the driver reads falsy as unset and substitutes 1800). |
 | `lockKeyPoolSize` | `2` (`DEFAULT_LOCK_KEY_POOL_SIZE`, `lib/dbh.js`) | Size of the handle's separate lock-key pool: the one `sqlHelpers.lockKey` makes a new key's row on, outside the caller's transaction. Made on the handle's first `lockKey`, closed with the handle (`end()`, `closeAllConnections()`), `minimumIdle: 0` (idle connections are reaped). A whole number, 1 or more. MySQL and Postgres only. |
@@ -888,6 +888,12 @@ module.exports = {
   },
 };
 ```
+
+On Postgres the floor is the other way round: pg-pool's own default is `0`, so a
+pool closes every idle session after `idleTimeout`. A session holds its prepared
+statements, their cached plans and its catalog caches, so an app that relies on
+cached plans sets `minimumIdle` to keep a few sessions warm (it is forwarded as
+pg-pool's `min`; the sessions above it still close after `idleTimeout`).
 
 `minimumIdle`, `acquireTimeout` and `idleTimeout` are only forwarded to the
 driver when you set them, so leaving them out preserves yass-orm's own defaults
@@ -1253,6 +1259,8 @@ of sometimes being applied twice.
 ## Recent changes
 
 ---
+- 2026-11-05 (unreleased)
+  - (fix) **`minimumIdle` reaches the Postgres pool.** `dbh` forwards it to every dialect, but `PostgresDialect.createPool` dropped it, so pg-pool always ran with `min` 0 and closed every session after `idleTimeout`, taking its prepared statements and cached plans with it. It is now pg-pool's `min`, forwarded only when set (`0` included); unset keeps pg-pool's default. `test/PostgresDialect.createPool-min.test.js` (in `test:postgres`) checks the options and, live, that the floor's sessions outlive `idleTimeout` with their prepared statement while the rest close.
 - 2026-11-04 (unreleased)
   - (fix) **A write whose reply was lost was run twice** (BDL-4470, follow-on to BDL-4386; found by kh63, Tessera). `retryIfConnectionLost` retried on the error alone. When the connection died after an autocommit write had committed but before its reply came back, it ran the callback again and the write was applied twice. The retry now looks at the error and at what the attempt sent (see "Lost connections and retries"). Errors that prove nothing was sent (`ECONNREFUSED`, 45013 `ER_CMD_CONNECTION_CLOSED`, which moved out of the died-mid-flight set, and `NULL_HANDLE`) are retried. A mid-flight death (`PROTOCOL_CONNECTION_LOST`, 45009, socket closed) is retried for reads and for calls marked `{ idempotent: true }`. Otherwise, once a write in the attempt may have landed (in flight, done, or under a nested retry), the call rejects with the new **`WriteOutcomeUnknownError`** (`code: 'ERR_WRITE_OUTCOME_UNKNOWN'`, the driver error as `cause`). It is never retried by an enclosing retry, and never goes to `onReconnectRetryFailed`. Every pool `dbh()` makes wraps `query` / `execute` / `batch` (`trackStatements`), so raw writes count too. New `{ idempotent }` option on `retryIfConnectionLost` (module and model, static and instance), and `withDbh(callback, { idempotent })` / `withDbh(sql, props, { idempotent })`. A write the server rejected (duplicate key, constraint) does not count as landed. On a typed rethrow the dead pool is still replaced, in the background. Exported from the root and typed. Not changed: COMMIT inside `dbh.transaction` (a lost reply to it surfaces the driver error, as before, with `transactionBegan`).
   - (feat) **Writes that are safe to replay are retried again.** `create()` on a `t.uuidKey` table, with no id given, is replayed: its id is made before the first attempt, and a replay that hits a duplicate key on it reads the row back by id from the primary and returns it. `patch()` is not replayed: a replay re-fires `UPDATE` triggers and can overwrite a later writer's patch (found in review). An auto-increment `create()`, a `create()` with an id you gave, `reallyDelete()` and raw `withDbh` writes are not replayed.

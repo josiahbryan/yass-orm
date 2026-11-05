@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `minimumIdle` now reaches the Postgres pool as pg-pool's `min`. `PostgresDialect.createPool` dropped it,
+  so every idle session closed after `idleTimeout` with its prepared statements and cached plans. It is forwarded only
+  when set (`0` included); unset keeps pg-pool's default (0).
 - **`retryIfConnectionLost` no longer runs a write twice** (BDL-4470). When the connection died after an
   autocommit write committed but before its reply arrived, the callback was retried and the write applied
   again. Now errors that prove the statement was never sent (`ECONNREFUSED`, 45013 `ER_CMD_CONNECTION_CLOSED`,
