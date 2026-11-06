@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A query that succeeds costs less.** `handle()` returns the cached handle without building a deferred access
+  (still the full path while an access is in progress, with `ignoreCachedConnections`, or after
+  `closeAllConnections()`). `retryIfConnectionLost` builds its backoff's delay generator on the first retry only, and
+  takes a `delayFactory` option. `cachedHandle()` is exported.
+
 ### Fixed
 
 - `minimumIdle` now reaches the Postgres pool as pg-pool's `min`. `PostgresDialect.createPool` dropped it,

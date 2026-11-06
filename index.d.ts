@@ -1671,6 +1671,8 @@ export declare function retryIfConnectionLost<T>(
 		 * may have landed. Default false: it rejects with WriteOutcomeUnknownError.
 		 */
 		idempotent?: boolean;
+		/** Makes the backoff's next-delay function; called on the first retry only. */
+		delayFactory?: () => () => number;
 	},
 ): Promise<T>;
 
