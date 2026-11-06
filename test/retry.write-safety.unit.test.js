@@ -436,4 +436,95 @@ describe('#retryIfConnectionLost: retry by (error, statement) (BDL-4470)', () =>
 			expect(db.query('INSERT INTO t VALUES (1)')).to.equal('sync');
 		});
 	});
+
+	/**
+	 * A caller that leases a connection from the pool (mysql2 / mariadb
+	 * getConnection, node-postgres connect) and sends on it, as a host that
+	 * replaces pool.query with its own leasing query does: the leased client's
+	 * writes are tracked too, so a lost reply after one is never replayed.
+	 */
+	describe('trackStatements: clients leased from the pool', () => {
+		// A replayed write would retry until the window ends: fail the test, never exit the process.
+		const SURVIVE = {
+			retryWindowMs: 50,
+			onReconnectRetryFailed: (ex) => {
+				throw ex;
+			},
+		};
+		/** A fake pool whose leased client's INSERT commits, then loses its reply. */
+		function leasingPool(method) {
+			const committed = [];
+			const client = {
+				query: async (sql) => {
+					if (sql.startsWith('INSERT')) {
+						committed.push(sql);
+						throw socketClosed();
+					}
+					return [];
+				},
+				release: () => {},
+			};
+			const pool = { committed, client };
+			if (method === 'connect-callback')
+				pool.connect = (callback) =>
+					setImmediate(() => callback(null, client, () => {}));
+			else pool[method] = async () => client;
+			return trackStatements(pool);
+		}
+		const lease = (pool, method) =>
+			method === 'connect-callback'
+				? new Promise((resolve, reject) => {
+						pool.connect((err, c) => (err ? reject(err) : resolve(c)));
+				  })
+				: pool[method]();
+
+		['getConnection', 'connect', 'connect-callback'].forEach((method) => {
+			it(`a write on a client leased by ${method} is not replayed after a lost reply`, async () => {
+				const pool = leasingPool(method);
+				const { attempts, error } = await run(
+					async () => {
+						const client = await lease(pool, method);
+						try {
+							return await client.query('INSERT INTO t VALUES (1)');
+						} finally {
+							client.release();
+						}
+					},
+					pool,
+					SURVIVE,
+				);
+				expect(attempts).to.equal(1);
+				expect(error).to.be.instanceOf(WriteOutcomeUnknownError);
+				expect(pool.committed).to.have.length(1);
+			});
+		});
+
+		it('a read on a leased client whose connection died is still retried', async () => {
+			let calls = 0;
+			const client = {
+				query: async () => {
+					calls += 1;
+					if (calls === 1) throw socketClosed();
+					return ['row'];
+				},
+			};
+			const pool = trackStatements({ getConnection: async () => client });
+			const { attempts, result } = await run(
+				async () => (await pool.getConnection()).query('SELECT 1'),
+				pool,
+				SURVIVE,
+			);
+			expect(attempts).to.equal(2);
+			expect(result).to.deep.equal(['row']);
+		});
+
+		it('a client leased again is wrapped once, and the lease method once', async () => {
+			const client = { query: async () => [] };
+			const pool = trackStatements({ getConnection: async () => client });
+			const acquire = pool.getConnection;
+			const first = (await pool.getConnection()).query;
+			expect((await pool.getConnection()).query).to.equal(first);
+			expect(trackStatements(pool).getConnection).to.equal(acquire);
+		});
+	});
 });
