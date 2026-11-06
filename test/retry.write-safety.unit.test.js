@@ -468,17 +468,26 @@ describe('#retryIfConnectionLost: retry by (error, statement) (BDL-4470)', () =>
 			if (method === 'connect-callback')
 				pool.connect = (callback) =>
 					setImmediate(() => callback(null, client, () => {}));
+			else if (method === 'getConnection-callback')
+				pool.getConnection = (callback) =>
+					setImmediate(() => callback(null, client));
 			else pool[method] = async () => client;
 			return trackStatements(pool);
 		}
-		const lease = (pool, method) =>
-			method === 'connect-callback'
-				? new Promise((resolve, reject) => {
-						pool.connect((err, c) => (err ? reject(err) : resolve(c)));
-				  })
-				: pool[method]();
+		const lease = (pool, method) => {
+			if (!method.endsWith('-callback')) return pool[method]();
+			const name = method.replace('-callback', '');
+			return new Promise((resolve, reject) => {
+				pool[name]((err, c) => (err ? reject(err) : resolve(c)));
+			});
+		};
 
-		['getConnection', 'connect', 'connect-callback'].forEach((method) => {
+		[
+			'getConnection',
+			'getConnection-callback',
+			'connect',
+			'connect-callback',
+		].forEach((method) => {
 			it(`a write on a client leased by ${method} is not replayed after a lost reply`, async () => {
 				const pool = leasingPool(method);
 				const { attempts, error } = await run(
