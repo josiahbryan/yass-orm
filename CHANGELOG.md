@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A write whose driver throws synchronously is not replayed either** (BDL-4470): when a query threw before
+  returning a promise (a synchronous driver, in a callback that is not async), `retryIfConnectionLost` lost the
+  attempt's retry scope and re-ran the callback, so a write that landed ran twice. The scope now always reaches the
+  retry, and the throw is handled as a rejection: `ERR_WRITE_OUTCOME_UNKNOWN`, not a second run.
 - **A write on a client leased from the pool is tracked** (BDL-4470): `trackStatements` also wraps the pool's
   `getConnection` / `connect` (promise and callback forms), so a host that sends through leased clients, not
   `pool.query`, can't have a write that may have landed run again after a lost reply.
